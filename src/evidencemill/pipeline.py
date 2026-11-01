@@ -52,7 +52,7 @@ def _text_observations(document: Document, block: TextBlock) -> list[EvidenceObs
                 unit=measurement.unit,
                 subject_hint=measurement.component_kind,
                 qualifiers=measurement.qualifiers,
-                context={"scope": measurement.scope, "placement": measurement.placement, "multiplicity": measurement.multiplicity, "value_kind": measurement.value_kind, "statement": sentence, "heading_path": list(block.heading_path)},
+                context={"scope": measurement.scope, "placement": measurement.placement, "multiplicity": measurement.multiplicity, "value_kind": measurement.value_kind, "tolerance": measurement.tolerance, "statement": sentence, "heading_path": list(block.heading_path)},
                 ambiguous=measurement.scope == "unknown",
             ))
     return out
@@ -106,6 +106,7 @@ def _table_observations(document: Document, block: TableBlock) -> list[EvidenceO
                     "placement": measurement.placement,
                     "multiplicity": measurement.multiplicity,
                     "value_kind": measurement.value_kind,
+                    "tolerance": measurement.tolerance,
                     "statement": statement,
                     "heading_path": list(block.heading_path),
                     "table_property": cell.property_hint,
