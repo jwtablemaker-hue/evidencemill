@@ -9,10 +9,10 @@ _NUMBER_FULL_RE = re.compile(r"[+-]?\d+(?:\.\d+)?")
 
 _TOKEN_RE = re.compile(
     r"(?<![A-Za-z0-9.])[+-]?\d+(?:\.\d+)?"
-    r"|(?<![A-Za-z])(?:km/h|kph|mph|km|mi|ft|kpa|psi|bar|wh|ah|kw|mm|cm|kg|lbs?|"
+    r"|(?<![A-Za-z])(?:km/h|kph|mph|kpa|psi|bar|wh|ah|kw|mm|cm|kg|lbs?|"
     r"inches?|inch|hours?|hrs?|hr|minutes?|mins?|min|seconds?|secs?|sec|"
     r"days?|weeks?|months?|years?|deg|degrees?|degree|°c|°f)(?![A-Za-z])"
-    r"|(?<![A-Za-z])(?:w|v|a|h|s|c|f|in|m)(?![A-Za-z])"
+    r"|(?<![A-Za-z])(?:w|v|a|h|s|c|f|in)(?![A-Za-z])"
     r"|(?:\+/-|±)"
     r"|[A-Za-z]+(?:-[A-Za-z]+)?"
     r"|[×/%°\"″]|[-–—]"
@@ -22,7 +22,6 @@ _TOKEN_RE = re.compile(
 
 _UNIT_MAP = {
     "km/h": "kmh", "kph": "kmh", "mph": "mph",
-    "km": "km", "mi": "mi", "m": "m", "ft": "ft",
     "kpa": "kPa", "psi": "psi", "bar": "bar",
     "wh": "Wh", "ah": "Ah", "kw": "kW", "w": "W", "v": "V", "a": "A",
     "mm": "mm", "cm": "cm", "kg": "kg",
@@ -116,8 +115,6 @@ class Measurement:
     token_index: int
     value_kind: str = "scalar"
     tolerance: float | None = None
-    comparison: str | None = None
-    local_label: str | None = None
     component_kind: str | None = None
     placement: str | None = None
     scope: str = "unknown"
@@ -173,7 +170,7 @@ def _same_clause(text: str, left: Token, right: Token) -> bool:
     if end <= start:
         return True
     segment = text[start:end]
-    return re.search(r"[,;!?]|(?<!\\d)\\.(?!\\d)", segment) is None
+    return re.search(r"[,;!?]|(?<!\d)\.(?!\d)", segment) is None
 
 
 def _near_tokens(
@@ -216,41 +213,6 @@ def _multiplicity(words: list[str], index: int) -> int | None:
         if window[i] == "2" and window[i + 1] in {"x", "×"}:
             return 2
     return None
-
-
-def _local_measurement_context(
-    text: str,
-    number_start: int,
-) -> tuple[str | None, str | None]:
-    boundary = max(
-        text.rfind("|", 0, number_start),
-        text.rfind(";", 0, number_start),
-        text.rfind("\n", 0, number_start),
-    )
-    prefix = text[boundary + 1:number_start]
-
-    comparison_match = re.search(
-        r"(<=|>=|<|>|≤|≥)\s*$",
-        prefix,
-    )
-    comparison = comparison_match.group(1) if comparison_match else None
-    if comparison == "≤":
-        comparison = "<="
-    elif comparison == "≥":
-        comparison = ">="
-
-    label_match = re.search(
-        r"([A-Za-z][A-Za-z0-9_-]*)\s*:\s*"
-        r"(?:(?:<=|>=|<|>|≤|≥)\s*)?$",
-        prefix,
-    )
-    nested_label_context = boundary >= 0 or prefix.count(":") >= 2
-    local_label = (
-        label_match.group(1)
-        if label_match and nested_label_context
-        else None
-    )
-    return comparison, local_label
 
 
 def analyze_statement(text: str) -> StatementStructure:
@@ -300,28 +262,6 @@ def analyze_statement(text: str) -> StatementStructure:
                 qualifiers.add("rated")
             else:
                 qualifiers.add(word)
-
-        prior_words = words[max(0, index - 5):index]
-        if len(prior_words) >= 2 and prior_words[-2:] == ["up", "to"]:
-            qualifiers.update({"maximum", "up_to"})
-        if len(prior_words) >= 2 and prior_words[-2:] == ["at", "least"]:
-            qualifiers.update({"minimum", "at_least"})
-        if len(prior_words) >= 2 and prior_words[-2:] == ["at", "most"]:
-            qualifiers.update({"maximum", "at_most"})
-        if any(
-            word in {"around", "about", "approximately", "approx"}
-            for word in prior_words
-        ):
-            qualifiers.add("approximate")
-
-        comparison, local_label = _local_measurement_context(
-            text,
-            number.start,
-        )
-        if comparison in {"<", "<="}:
-            qualifiers.update({"maximum", "upper_bound"})
-        elif comparison in {">", ">="}:
-            qualifiers.update({"minimum", "lower_bound"})
 
         nearest = None
         if components and not ({"combined", "total", "system"} & qualifier_words):
@@ -403,8 +343,6 @@ def analyze_statement(text: str) -> StatementStructure:
             token_index=index,
             value_kind=value_kind,
             tolerance=tolerance,
-            comparison=comparison,
-            local_label=local_label,
             component_kind=nearest.kind if nearest else None,
             placement=nearest.placement if nearest else None,
             scope=scope,
