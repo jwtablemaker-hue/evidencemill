@@ -10,6 +10,7 @@ from typing import Any, Callable, Iterable, Protocol
 from evidencemill.document import Document
 from evidencemill.models import EvidenceObservation, SourceRef
 from evidencemill.pipeline import process_document
+from evidencemill.sentence_structure import analyze_statement
 
 
 READY = "READY"
@@ -183,7 +184,33 @@ def _measurement_predicate(observation: EvidenceObservation) -> tuple[str | None
 
 def _candidate_from_table(observation: EvidenceObservation) -> FactCandidate:
     subject = observation.subject_hint
+    context = dict(observation.context)
+
+    if subject is None:
+        hint_text = " ".join(
+            str(item).strip()
+            for item in (
+                context.get("section_heading"),
+                context.get("table_subject"),
+                observation.property_hint,
+            )
+            if item and str(item).strip()
+        )
+        if hint_text:
+            structure = analyze_statement(hint_text)
+            kinds = sorted({item.kind for item in structure.components})
+            if len(kinds) == 1:
+                subject = kinds[0]
+                context["table_component_hint"] = subject
+
     predicate = _slug(observation.property_hint)
+    if subject and predicate:
+        subject_prefix = _slug(subject)
+        if predicate == subject_prefix:
+            predicate = None
+        elif subject_prefix and predicate.startswith(subject_prefix + "."):
+            predicate = predicate[len(subject_prefix) + 1:] or None
+
     reason = None
     confidence = 0.98
 
@@ -215,7 +242,7 @@ def _candidate_from_table(observation: EvidenceObservation) -> FactCandidate:
         value=observation.value,
         unit=observation.unit,
         qualifiers=tuple(observation.qualifiers),
-        context=dict(observation.context),
+        context=context,
         readiness=readiness,
         review_reason=reason,
         confidence=confidence,
