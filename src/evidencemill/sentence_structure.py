@@ -6,9 +6,14 @@ from typing import Iterable
 
 
 _TOKEN_RE = re.compile(
-    r"\d+(?:\.\d+)?|km/h|kph|mph|kpa|psi|bar|wh|ah|kw|w|v|a|"
-    r"mm|cm|kg|lbs?|inches?|inch|in|hours?|hrs?|hr|h|minutes?|mins?|min|"
-    r"percent|degrees?|degree|deg|°|%|[A-Za-z]+(?:-[A-Za-z]+)?|[×x/]",
+    r"(?<![A-Za-z0-9.])\\d+(?:\\.\\d+)?"
+    r"|(?<![A-Za-z])(?:km/h|kph|mph|kpa|psi|bar|wh|ah|kw|mm|cm|kg|lbs?|"
+    r"inches?|inch|hours?|hrs?|hr|minutes?|mins?|min|seconds?|secs?|sec|"
+    r"days?|weeks?|months?|years?|deg|degrees?|degree|°c|°f)(?![A-Za-z])"
+    r"|(?<![A-Za-z])(?:w|v|a|h|s|c|f|in)(?![A-Za-z])"
+    r"|[A-Za-z]+(?:-[A-Za-z]+)?"
+    r"|[×/%°]|[-–—]"
+    r"|(?<![A-Za-z])x(?![A-Za-z])",
     re.I,
 )
 
@@ -20,8 +25,12 @@ _UNIT_MAP = {
     "lb": "lb", "lbs": "lb", "in": "in", "inch": "in", "inches": "in",
     "h": "h", "hr": "h", "hrs": "h", "hour": "h", "hours": "h",
     "min": "min", "mins": "min", "minute": "min", "minutes": "min",
+    "s": "s", "sec": "s", "secs": "s", "second": "s", "seconds": "s",
+    "day": "day", "days": "day", "week": "week", "weeks": "week",
+    "month": "month", "months": "month", "year": "year", "years": "year",
     "percent": "percent", "%": "percent",
     "deg": "deg", "degree": "deg", "degrees": "deg", "°": "deg",
+    "c": "degC", "°c": "degC", "f": "degF", "°f": "degF",
 }
 
 _COMPONENT_WORDS = {
@@ -88,10 +97,11 @@ class ComponentMention:
 
 @dataclass(frozen=True)
 class Measurement:
-    value: float
+    value: float | tuple[float, float]
     unit: str
     text: str
     token_index: int
+    value_kind: str = "scalar"
     component_kind: str | None = None
     placement: str | None = None
     scope: str = "unknown"
@@ -139,6 +149,32 @@ def _near(words: list[str], index: int, candidates: Iterable[str], radius: int =
     hi = min(len(words), index + radius + 1)
     wanted = set(candidates)
     return {word for word in words[lo:hi] if word in wanted}
+
+
+def _same_clause(text: str, left: Token, right: Token) -> bool:
+    start = min(left.end, right.end)
+    end = max(left.start, right.start)
+    if end <= start:
+        return True
+    return re.search(r"[,;.!?]", text[start:end]) is None
+
+
+def _near_tokens(
+    tokens: list[Token],
+    index: int,
+    candidates: Iterable[str],
+    text: str,
+    radius: int = 4,
+) -> set[str]:
+    lo = max(0, index - radius)
+    hi = min(len(tokens), index + radius + 1)
+    wanted = set(candidates)
+    anchor = tokens[index]
+    return {
+        tokens[i].norm
+        for i in range(lo, hi)
+        if tokens[i].norm in wanted and _same_clause(text, anchor, tokens[i])
+    }
 
 
 def _placement(words: list[str], index: int) -> str | None:
@@ -191,13 +227,14 @@ def analyze_statement(text: str) -> StatementStructure:
         if unit is None:
             continue
 
-        qualifier_words = _near(
-            words,
+        qualifier_words = _near_tokens(
+            tokens,
             index,
             {
                 "combined", "total", "system", "peak", "maximum", "max",
                 "rated", "continuous", "nominal", "each", "per",
             },
+            text,
             4,
         )
         qualifiers = set()
@@ -211,9 +248,14 @@ def analyze_statement(text: str) -> StatementStructure:
 
         nearest = None
         if components and not ({"combined", "total", "system"} & qualifier_words):
-            nearest = min(components, key=lambda item: abs(item.token_index - index))
-            if abs(nearest.token_index - index) > 6:
-                nearest = None
+            local_components = [
+                item
+                for item in components
+                if abs(item.token_index - index) <= 6
+                and _same_clause(text, tokens[index], tokens[item.token_index])
+            ]
+            if local_components:
+                nearest = min(local_components, key=lambda item: abs(item.token_index - index))
 
         scope = "unknown"
         multiplicity = nearest.multiplicity if nearest else None
@@ -226,11 +268,28 @@ def analyze_statement(text: str) -> StatementStructure:
         elif nearest:
             scope = "component"
 
+        value: float | tuple[float, float] = float(number.norm)
+        value_kind = "scalar"
+        value_start = number.start
+
+        if index >= 2 and re.fullmatch(r"\\d+(?:\\.\\d+)?", tokens[index - 2].norm):
+            separator = tokens[index - 1].norm
+            if separator in {"-", "–", "—", "to"}:
+                value = (float(tokens[index - 2].norm), float(number.norm))
+                value_kind = "range"
+                value_start = tokens[index - 2].start
+            elif separator == "/":
+                value = (float(tokens[index - 2].norm), float(number.norm))
+                value_kind = "alternatives"
+                value_start = tokens[index - 2].start
+                qualifiers.add("alternative")
+
         measurements.append(Measurement(
-            value=float(number.norm),
+            value=value,
             unit=unit,
-            text=text[number.start:unit_token.end],
+            text=text[value_start:unit_token.end],
             token_index=index,
+            value_kind=value_kind,
             component_kind=nearest.kind if nearest else None,
             placement=nearest.placement if nearest else None,
             scope=scope,
