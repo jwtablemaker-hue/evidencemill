@@ -244,7 +244,12 @@ def _local_measurement_context(
         r"(?:(?:<=|>=|<|>|≤|≥)\s*)?$",
         prefix,
     )
-    local_label = label_match.group(1) if label_match else None
+    nested_label_context = boundary >= 0 or prefix.count(":") >= 2
+    local_label = (
+        label_match.group(1)
+        if label_match and nested_label_context
+        else None
+    )
     return comparison, local_label
 
 
