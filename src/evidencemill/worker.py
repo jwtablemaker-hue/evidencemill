@@ -280,6 +280,9 @@ def _candidate_from_table(observation: EvidenceObservation) -> FactCandidate:
         value=observation.value,
         unit=observation.unit,
         qualifiers=tuple(observation.qualifiers),
+        conditions={
+            "source_caveats": context.get("source_caveats", []),
+        } if context.get("source_caveats") else {},
         context=context,
         readiness=readiness,
         review_reason=reason,
@@ -353,6 +356,7 @@ def _candidate_from_measurement(observation: EvidenceObservation) -> FactCandida
             "scope": scope,
             "placement": observation.context.get("placement"),
             "multiplicity": observation.context.get("multiplicity"),
+            "source_caveats": observation.context.get("source_caveats"),
         },
         context={**dict(observation.context), "heading_subject_hint": heading_hint},
         readiness=readiness,
