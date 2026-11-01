@@ -12,7 +12,7 @@ def parse_csv_stream(
     *,
     source_id: str,
     delimiter: str | None = None,
-    header_rows: int = 1,
+    header_rows: int | None = None,
     row_header_columns: int = 1,
 ) -> Document:
     if delimiter is None:
