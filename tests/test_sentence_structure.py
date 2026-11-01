@@ -52,6 +52,34 @@ class SentenceStructureTests(unittest.TestCase):
         self.assertEqual(result.measurements[0].component_kind, "controller")
         self.assertEqual(result.measurements[1].component_kind, "motor")
 
+    def test_signed_temperature_preserves_sign(self):
+        result = analyze_statement("Operating temperature is -5°C.")
+        self.assertEqual(len(result.measurements), 1)
+        self.assertEqual(result.measurements[0].value, -5.0)
+        self.assertEqual(result.measurements[0].unit, "degC")
+
+    def test_voltage_tolerance_is_one_measurement(self):
+        result = analyze_statement("Low voltage protection is 31V +/- 0.5V.")
+        self.assertEqual(len(result.measurements), 1)
+        measurement = result.measurements[0]
+        self.assertEqual(measurement.value, 31.0)
+        self.assertEqual(measurement.unit, "V")
+        self.assertEqual(measurement.value_kind, "tolerance")
+        self.assertEqual(measurement.tolerance, 0.5)
+
+    def test_dimension_triple_is_preserved(self):
+        result = analyze_statement("Product dimensions are 1215 x 455 x 1185mm.")
+        self.assertEqual(len(result.measurements), 1)
+        measurement = result.measurements[0]
+        self.assertEqual(measurement.value, (1215.0, 455.0, 1185.0))
+        self.assertEqual(measurement.unit, "mm")
+        self.assertEqual(measurement.value_kind, "tuple")
+
+    def test_inch_mark_is_unit(self):
+        result = analyze_statement('Tyres are 10" tubeless.')
+        self.assertEqual(len(result.measurements), 1)
+        self.assertEqual((result.measurements[0].value, result.measurements[0].unit), (10.0, "in"))
+
 
 if __name__ == "__main__":
     unittest.main()
