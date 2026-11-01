@@ -16,6 +16,9 @@ _HEADER_WORDS = {
     "parameter", "parameters", "property", "properties", "specification",
     "specifications", "spec", "specs", "value", "values", "description",
     "unit", "units", "name", "feature", "features", "option", "options",
+    "rated", "nominal", "maximum", "minimum", "power", "voltage", "current",
+    "capacity", "energy", "speed", "range", "weight", "mass", "length",
+    "width", "height", "temperature", "pressure", "torque",
 }
 
 
@@ -79,7 +82,7 @@ def infer_table_layout(rows: Sequence[Sequence[object]]) -> tuple[str, int]:
     if first[0] and not first[1]:
         return "key_value", 0
 
-    if _headerish(first[0]) and (_headerish(first[1]) or first[1]):
+    if _headerish(first[0]) and _headerish(first[1]):
         return "matrix", 1
 
     paired = [row for row in nonempty if row[0] and row[1]]
