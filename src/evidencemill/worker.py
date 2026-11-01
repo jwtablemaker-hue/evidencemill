@@ -304,6 +304,25 @@ def _candidate_from_measurement(observation: EvidenceObservation) -> FactCandida
     scope = observation.context.get("scope")
     heading_hint = _meaningful_heading(observation.context)
     subject = observation.subject_hint
+    table_component_hint = None
+
+    if subject is None:
+        property_text = observation.context.get("table_property")
+        section_text = observation.context.get("table_section")
+        hint_text = " ".join(
+            str(item).strip()
+            for item in (section_text, property_text)
+            if item and str(item).strip()
+        )
+        if hint_text:
+            structure = analyze_statement(hint_text)
+            kinds = sorted({item.kind for item in structure.components})
+            if len(kinds) == 1:
+                table_component_hint = kinds[0]
+                subject = table_component_hint
+                if scope == "unknown":
+                    scope = "component"
+
     if subject is None and scope == "system":
         subject = "system"
 
@@ -368,7 +387,11 @@ def _candidate_from_measurement(observation: EvidenceObservation) -> FactCandida
             "local_label": observation.context.get("local_label"),
             "source_caveats": observation.context.get("source_caveats"),
         },
-        context={**dict(observation.context), "heading_subject_hint": heading_hint},
+        context={
+            **dict(observation.context),
+            "heading_subject_hint": heading_hint,
+            "table_component_hint": table_component_hint,
+        },
         readiness=readiness,
         review_reason=review_reasons[0] if review_reasons else None,
         review_reasons=review_reasons,
