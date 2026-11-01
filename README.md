@@ -1,19 +1,56 @@
 # EvidenceMill
 
-Document interpretation infrastructure for turning prose, tables, diagrams, and layout into structured, traceable evidence.
+EvidenceMill turns source documents into structured, traceable evidence before an expensive semantic model has to touch them.
 
-EvidenceMill sits before domain-specific systems. It does not decide truth and it does not write canonical facts. It removes cheap, repetitive interpretation work from agents by extracting explicit document structure deterministically.
+It is deliberately domain-neutral. It does not decide truth and it does not write canonical facts.
+
+## What it handles
+
+Current deterministic paths:
+
+- Plain text and Markdown: headings, paragraphs, sentence structure, quantities, units, component attachment, multiplicity, placement, qualifiers, and scope.
+- HTML: headings, paragraphs, lists, tables, captions, figures, and cross-references.
+- CSV/TSV: table structure, row and column context, inherited units, and cell observations.
+- PDF: positioned text blocks, detected tables, embedded-image regions, document metadata, and optional OCR fallback for scanned pages.
+- Images: OCR word boxes, diagram callout candidates, and geometric callout-to-label association.
+- Diagrams: optional OpenCV leader-line detection.
+- Cross-references: Figure, Table, Section, and Appendix references resolved to extracted blocks when possible.
+- SQL: portable mapping from EvidenceMill observations into existing SQL schemas.
 
 ## Pipeline
 
-    source document
-      -> layout
-      -> prose / tables / illustrations
+    source file
+      -> document ingestion
+      -> layout blocks
+      -> prose / table / figure extraction
       -> cross-reference resolution
-      -> structured evidence observations
-      -> domain or SQL adapter
+      -> structured EvidenceObservation records
+      -> optional SQL or domain adapter
       -> unresolved semantics only
       -> downstream system
+
+## Cheap core, optional heavy edges
+
+The core package uses only the Python standard library.
+
+Optional extras add capabilities only when needed:
+
+    pip install evidencemill[pdf]
+    pip install evidencemill[ocr]
+    pip install evidencemill[vision]
+    pip install evidencemill[all]
+
+Image OCR uses pytesseract and therefore also needs a working Tesseract installation.
+
+## CLI
+
+After installation:
+
+    evidencemill manual.html --pretty
+    evidencemill manual.pdf --ocr --pretty
+    evidencemill specs.csv --pretty
+
+The output is JSON containing document metadata and structured observations.
 
 ## Design rules
 
@@ -26,41 +63,17 @@ EvidenceMill sits before domain-specific systems. It does not decide truth and i
 - The extraction core stays domain-neutral.
 - Downstream schemas belong in adapters or external mapping files.
 
-## Initial modules
-
-- sentence_structure: quantities, units, component mentions, placement, multiplicity, qualifiers, system-vs-component scope.
-- table_context: row headers, column headers, inherited units, notes, and explicit cell context.
-- layout: neutral block, caption, and heading interfaces.
-- illustration: neutral callout, label, and leader-line interfaces.
-- adapters.sql: portable table/column mapping from observations into existing SQL schemas.
-
 ## SQL integration
 
-EvidenceMill does not need to know a target database's domain model.
+The SQL adapter maps target columns to neutral observation paths such as value, unit, source.source_id, source.location, source.raw_text, subject_hint, property_hint, qualifiers, context, and ambiguous.
 
-The SQL adapter maps target columns to neutral observation paths such as:
-
-    value
-    unit
-    source.source_id
-    source.location
-    source.raw_text
-    subject_hint
-    property_hint
-    qualifiers
-    context
-    ambiguous
-
-SQLite schema introspection and conservative mapping suggestions are built in.
-The same mapping contract can generate parameterized SQL for DB-API qmark,
-format, numeric, named, and pyformat styles.
+SQLite schema introspection and conservative mapping suggestions are built in. The same mapping contract can generate parameterized SQL for standard DB-API placeholder styles.
 
 See docs/sql-adapter.md.
 
 ## Status
 
-Early extraction engine. It produces evidence observations, not autonomous facts.
-
+EvidenceMill is an early functional extraction engine. Text, HTML, CSV/table context, cross-reference resolution, and diagram callout geometry are implemented and tested. PDF, OCR, and computer-vision paths are optional integrations and depend on their external libraries.
 
 ## Support
 
