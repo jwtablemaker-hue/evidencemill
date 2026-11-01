@@ -5,14 +5,17 @@ import re
 from typing import Iterable
 
 
+_NUMBER_FULL_RE = re.compile(r"[+-]?\d+(?:\.\d+)?")
+
 _TOKEN_RE = re.compile(
-    r"(?<![A-Za-z0-9.])\\d+(?:\\.\\d+)?"
+    r"(?<![A-Za-z0-9.])[+-]?\d+(?:\.\d+)?"
     r"|(?<![A-Za-z])(?:km/h|kph|mph|kpa|psi|bar|wh|ah|kw|mm|cm|kg|lbs?|"
     r"inches?|inch|hours?|hrs?|hr|minutes?|mins?|min|seconds?|secs?|sec|"
     r"days?|weeks?|months?|years?|deg|degrees?|degree|°c|°f)(?![A-Za-z])"
     r"|(?<![A-Za-z])(?:w|v|a|h|s|c|f|in)(?![A-Za-z])"
+    r"|(?:\+/-|±)"
     r"|[A-Za-z]+(?:-[A-Za-z]+)?"
-    r"|[×/%°]|[-–—]"
+    r"|[×/%°\"″]|[-–—]"
     r"|(?<![A-Za-z])x(?![A-Za-z])",
     re.I,
 )
@@ -23,6 +26,7 @@ _UNIT_MAP = {
     "wh": "Wh", "ah": "Ah", "kw": "kW", "w": "W", "v": "V", "a": "A",
     "mm": "mm", "cm": "cm", "kg": "kg",
     "lb": "lb", "lbs": "lb", "in": "in", "inch": "in", "inches": "in",
+    "\"": "in", "″": "in",
     "h": "h", "hr": "h", "hrs": "h", "hour": "h", "hours": "h",
     "min": "min", "mins": "min", "minute": "min", "minutes": "min",
     "s": "s", "sec": "s", "secs": "s", "second": "s", "seconds": "s",
@@ -105,11 +109,12 @@ class ComponentMention:
 
 @dataclass(frozen=True)
 class Measurement:
-    value: float | tuple[float, float]
+    value: float | tuple[float, ...]
     unit: str
     text: str
     token_index: int
     value_kind: str = "scalar"
+    tolerance: float | None = None
     component_kind: str | None = None
     placement: str | None = None
     scope: str = "unknown"
@@ -164,7 +169,8 @@ def _same_clause(text: str, left: Token, right: Token) -> bool:
     end = max(left.start, right.start)
     if end <= start:
         return True
-    return re.search(r"[,;.!?]", text[start:end]) is None
+    segment = text[start:end]
+    return re.search(r"[,;!?]|(?<!\\d)\\.(?!\\d)", segment) is None
 
 
 def _near_tokens(
@@ -227,9 +233,12 @@ def analyze_statement(text: str) -> StatementStructure:
             ))
 
     measurements: list[Measurement] = []
+    consumed_measurement_numbers: set[int] = set()
     for index in range(len(tokens) - 1):
+        if index in consumed_measurement_numbers:
+            continue
         number, unit_token = tokens[index], tokens[index + 1]
-        if not re.fullmatch(r"\d+(?:\.\d+)?", number.norm):
+        if not _NUMBER_FULL_RE.fullmatch(number.norm):
             continue
         unit = _UNIT_MAP.get(unit_token.norm)
         if unit is None:
@@ -282,11 +291,27 @@ def analyze_statement(text: str) -> StatementStructure:
         elif nearest:
             scope = "component"
 
-        value: float | tuple[float, float] = float(number.norm)
+        value: float | tuple[float, ...] = float(number.norm)
         value_kind = "scalar"
         value_start = number.start
+        value_end = unit_token.end
+        tolerance: float | None = None
 
-        if index >= 2 and re.fullmatch(r"\\d+(?:\\.\\d+)?", tokens[index - 2].norm):
+        if (
+            index >= 4
+            and _NUMBER_FULL_RE.fullmatch(tokens[index - 4].norm)
+            and tokens[index - 3].norm in {"x", "×"}
+            and _NUMBER_FULL_RE.fullmatch(tokens[index - 2].norm)
+            and tokens[index - 1].norm in {"x", "×"}
+        ):
+            value = (
+                float(tokens[index - 4].norm),
+                float(tokens[index - 2].norm),
+                float(number.norm),
+            )
+            value_kind = "tuple"
+            value_start = tokens[index - 4].start
+        elif index >= 2 and _NUMBER_FULL_RE.fullmatch(tokens[index - 2].norm):
             separator = tokens[index - 1].norm
             if separator in {"-", "–", "—", "to"}:
                 value = (float(tokens[index - 2].norm), float(number.norm))
@@ -298,12 +323,26 @@ def analyze_statement(text: str) -> StatementStructure:
                 value_start = tokens[index - 2].start
                 qualifiers.add("alternative")
 
+        if (
+            value_kind == "scalar"
+            and index + 4 < len(tokens)
+            and tokens[index + 2].norm in {"+/-", "±"}
+            and _NUMBER_FULL_RE.fullmatch(tokens[index + 3].norm)
+            and _UNIT_MAP.get(tokens[index + 4].norm) == unit
+        ):
+            tolerance = abs(float(tokens[index + 3].norm))
+            value_kind = "tolerance"
+            qualifiers.add("tolerance")
+            value_end = tokens[index + 4].end
+            consumed_measurement_numbers.add(index + 3)
+
         measurements.append(Measurement(
             value=value,
             unit=unit,
-            text=text[value_start:unit_token.end],
+            text=text[value_start:value_end],
             token_index=index,
             value_kind=value_kind,
+            tolerance=tolerance,
             component_kind=nearest.kind if nearest else None,
             placement=nearest.placement if nearest else None,
             scope=scope,

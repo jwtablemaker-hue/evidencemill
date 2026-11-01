@@ -52,7 +52,69 @@ def _text_observations(document: Document, block: TextBlock) -> list[EvidenceObs
                 unit=measurement.unit,
                 subject_hint=measurement.component_kind,
                 qualifiers=measurement.qualifiers,
-                context={"scope": measurement.scope, "placement": measurement.placement, "multiplicity": measurement.multiplicity, "value_kind": measurement.value_kind, "statement": sentence, "heading_path": list(block.heading_path)},
+                context={"scope": measurement.scope, "placement": measurement.placement, "multiplicity": measurement.multiplicity, "value_kind": measurement.value_kind, "tolerance": measurement.tolerance, "statement": sentence, "heading_path": list(block.heading_path)},
+                ambiguous=measurement.scope == "unknown",
+            ))
+    return out
+
+
+def _table_observations(document: Document, block: TableBlock) -> list[EvidenceObservation]:
+    cells = parse_table(
+        block.rows,
+        source_id=document.source_id,
+        header_rows=block.header_rows,
+        row_header_columns=block.row_header_columns,
+        location=_location(block),
+        layout=block.layout,
+        table_subject=block.subject_hint,
+    )
+    out: list[EvidenceObservation] = list(cells)
+
+    for cell in cells:
+        context = dict(cell.context)
+        labels = [
+            context.get("section_heading"),
+            cell.property_hint,
+            cell.subject_hint,
+        ]
+        label_text = " ".join(
+            str(item).strip()
+            for item in labels
+            if item and str(item).strip()
+        )
+        value_text = str(cell.value).strip()
+        statement = f"{label_text}: {value_text}" if label_text else value_text
+
+        structure = analyze_statement(statement)
+        if not structure.measurements and cell.unit:
+            structure = analyze_statement(f"{statement} {cell.unit}")
+
+        for measurement_index, measurement in enumerate(structure.measurements, start=1):
+            out.append(EvidenceObservation(
+                kind="measurement",
+                source=SourceRef(
+                    document.source_id,
+                    f"{cell.source.location}:m{measurement_index}",
+                    measurement.text,
+                ),
+                value=measurement.value,
+                unit=measurement.unit,
+                subject_hint=measurement.component_kind,
+                qualifiers=measurement.qualifiers,
+                context={
+                    "scope": measurement.scope,
+                    "placement": measurement.placement,
+                    "multiplicity": measurement.multiplicity,
+                    "value_kind": measurement.value_kind,
+                    "tolerance": measurement.tolerance,
+                    "statement": statement,
+                    "heading_path": list(block.heading_path),
+                    "table_property": cell.property_hint,
+                    "table_subject": cell.subject_hint,
+                    "table_section": context.get("section_heading"),
+                    "table_layout": context.get("table_layout"),
+                    "table_cell_location": cell.source.location,
+                },
                 ambiguous=measurement.scope == "unknown",
             ))
     return out
@@ -78,7 +140,7 @@ def process_document(document: Document) -> list[EvidenceObservation]:
         if isinstance(block, TextBlock):
             observations.extend(_text_observations(document, block))
         elif isinstance(block, TableBlock):
-            observations.extend(parse_table(block.rows, source_id=document.source_id, header_rows=block.header_rows, row_header_columns=block.row_header_columns, location=_location(block)))
+            observations.extend(_table_observations(document, block))
         elif isinstance(block, FigureBlock):
             observations.extend(_figure_observations(document, block))
     for ref in resolve_cross_references(document):
