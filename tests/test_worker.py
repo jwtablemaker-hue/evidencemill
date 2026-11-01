@@ -28,14 +28,14 @@ class FactPrepWorkerTests(unittest.TestCase):
             source=SourceRef("manual", "text-1:s1:m1", "2400 W"),
             value=2400.0,
             unit="W",
-            subject_hint="motor",
+            subject_hint=None,
             qualifiers=("combined", "peak"),
             context={"scope": "system", "placement": None, "multiplicity": 2},
         )
         candidate = observation_to_candidate(observation)
         self.assertEqual(candidate.readiness, READY)
         self.assertEqual(candidate.predicate_hint, "peak.power")
-        self.assertEqual(candidate.subject_hint, "motor")
+        self.assertEqual(candidate.subject_hint, "system")
 
     def test_unrated_motor_power_is_review_not_guess(self):
         observation = EvidenceObservation(
