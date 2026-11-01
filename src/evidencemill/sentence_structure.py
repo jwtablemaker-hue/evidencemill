@@ -116,6 +116,8 @@ class Measurement:
     token_index: int
     value_kind: str = "scalar"
     tolerance: float | None = None
+    comparison: str | None = None
+    local_label: str | None = None
     component_kind: str | None = None
     placement: str | None = None
     scope: str = "unknown"
@@ -216,6 +218,36 @@ def _multiplicity(words: list[str], index: int) -> int | None:
     return None
 
 
+def _local_measurement_context(
+    text: str,
+    number_start: int,
+) -> tuple[str | None, str | None]:
+    boundary = max(
+        text.rfind("|", 0, number_start),
+        text.rfind(";", 0, number_start),
+        text.rfind("\n", 0, number_start),
+    )
+    prefix = text[boundary + 1:number_start]
+
+    comparison_match = re.search(
+        r"(<=|>=|<|>|≤|≥)\s*$",
+        prefix,
+    )
+    comparison = comparison_match.group(1) if comparison_match else None
+    if comparison == "≤":
+        comparison = "<="
+    elif comparison == "≥":
+        comparison = ">="
+
+    label_match = re.search(
+        r"([A-Za-z][A-Za-z0-9_-]*)\s*:\s*"
+        r"(?:(?:<=|>=|<|>|≤|≥)\s*)?$",
+        prefix,
+    )
+    local_label = label_match.group(1) if label_match else None
+    return comparison, local_label
+
+
 def analyze_statement(text: str) -> StatementStructure:
     tokens = _tokens(text)
     words = [token.norm for token in tokens]
@@ -276,6 +308,15 @@ def analyze_statement(text: str) -> StatementStructure:
             for word in prior_words
         ):
             qualifiers.add("approximate")
+
+        comparison, local_label = _local_measurement_context(
+            text,
+            number.start,
+        )
+        if comparison in {"<", "<="}:
+            qualifiers.update({"maximum", "upper_bound"})
+        elif comparison in {">", ">="}:
+            qualifiers.update({"minimum", "lower_bound"})
 
         nearest = None
         if components and not ({"combined", "total", "system"} & qualifier_words):
@@ -357,6 +398,8 @@ def analyze_statement(text: str) -> StatementStructure:
             token_index=index,
             value_kind=value_kind,
             tolerance=tolerance,
+            comparison=comparison,
+            local_label=local_label,
             component_kind=nearest.kind if nearest else None,
             placement=nearest.placement if nearest else None,
             scope=scope,
