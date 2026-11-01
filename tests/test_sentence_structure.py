@@ -80,6 +80,14 @@ class SentenceStructureTests(unittest.TestCase):
         self.assertEqual(len(result.measurements), 1)
         self.assertEqual((result.measurements[0].value, result.measurements[0].unit), (10.0, "in"))
 
+    def test_decimal_in_multi_measurement_component_does_not_break_attachment(self):
+        result = analyze_statement("Battery: 36V 8.0Ah 288Wh.")
+        self.assertEqual(len(result.measurements), 3)
+        self.assertEqual(
+            [item.component_kind for item in result.measurements],
+            ["battery", "battery", "battery"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
