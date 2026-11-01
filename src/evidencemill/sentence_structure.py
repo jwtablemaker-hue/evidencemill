@@ -232,9 +232,12 @@ def analyze_statement(text: str) -> StatementStructure:
             ))
 
     measurements: list[Measurement] = []
+    consumed_measurement_numbers: set[int] = set()
     for index in range(len(tokens) - 1):
+        if index in consumed_measurement_numbers:
+            continue
         number, unit_token = tokens[index], tokens[index + 1]
-        if not re.fullmatch(r"\d+(?:\.\d+)?", number.norm):
+        if not _NUMBER_FULL_RE.fullmatch(number.norm):
             continue
         unit = _UNIT_MAP.get(unit_token.norm)
         if unit is None:
@@ -287,11 +290,27 @@ def analyze_statement(text: str) -> StatementStructure:
         elif nearest:
             scope = "component"
 
-        value: float | tuple[float, float] = float(number.norm)
+        value: float | tuple[float, ...] = float(number.norm)
         value_kind = "scalar"
         value_start = number.start
+        value_end = unit_token.end
+        tolerance: float | None = None
 
-        if index >= 2 and re.fullmatch(r"\\d+(?:\\.\\d+)?", tokens[index - 2].norm):
+        if (
+            index >= 4
+            and _NUMBER_FULL_RE.fullmatch(tokens[index - 4].norm)
+            and tokens[index - 3].norm in {"x", "×"}
+            and _NUMBER_FULL_RE.fullmatch(tokens[index - 2].norm)
+            and tokens[index - 1].norm in {"x", "×"}
+        ):
+            value = (
+                float(tokens[index - 4].norm),
+                float(tokens[index - 2].norm),
+                float(number.norm),
+            )
+            value_kind = "tuple"
+            value_start = tokens[index - 4].start
+        elif index >= 2 and _NUMBER_FULL_RE.fullmatch(tokens[index - 2].norm):
             separator = tokens[index - 1].norm
             if separator in {"-", "–", "—", "to"}:
                 value = (float(tokens[index - 2].norm), float(number.norm))
@@ -303,12 +322,26 @@ def analyze_statement(text: str) -> StatementStructure:
                 value_start = tokens[index - 2].start
                 qualifiers.add("alternative")
 
+        if (
+            value_kind == "scalar"
+            and index + 4 < len(tokens)
+            and tokens[index + 2].norm in {"+/-", "±"}
+            and _NUMBER_FULL_RE.fullmatch(tokens[index + 3].norm)
+            and _UNIT_MAP.get(tokens[index + 4].norm) == unit
+        ):
+            tolerance = abs(float(tokens[index + 3].norm))
+            value_kind = "tolerance"
+            qualifiers.add("tolerance")
+            value_end = tokens[index + 4].end
+            consumed_measurement_numbers.add(index + 3)
+
         measurements.append(Measurement(
             value=value,
             unit=unit,
-            text=text[value_start:unit_token.end],
+            text=text[value_start:value_end],
             token_index=index,
             value_kind=value_kind,
+            tolerance=tolerance,
             component_kind=nearest.kind if nearest else None,
             placement=nearest.placement if nearest else None,
             scope=scope,
