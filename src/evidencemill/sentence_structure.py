@@ -5,14 +5,17 @@ import re
 from typing import Iterable
 
 
+_NUMBER_FULL_RE = re.compile(r"[+-]?\d+(?:\.\d+)?")
+
 _TOKEN_RE = re.compile(
-    r"(?<![A-Za-z0-9.])\\d+(?:\\.\\d+)?"
+    r"(?<![A-Za-z0-9.])[+-]?\d+(?:\.\d+)?"
     r"|(?<![A-Za-z])(?:km/h|kph|mph|kpa|psi|bar|wh|ah|kw|mm|cm|kg|lbs?|"
     r"inches?|inch|hours?|hrs?|hr|minutes?|mins?|min|seconds?|secs?|sec|"
     r"days?|weeks?|months?|years?|deg|degrees?|degree|°c|°f)(?![A-Za-z])"
     r"|(?<![A-Za-z])(?:w|v|a|h|s|c|f|in)(?![A-Za-z])"
+    r"|(?:\+/-|±)"
     r"|[A-Za-z]+(?:-[A-Za-z]+)?"
-    r"|[×/%°]|[-–—]"
+    r"|[×/%°\"″]|[-–—]"
     r"|(?<![A-Za-z])x(?![A-Za-z])",
     re.I,
 )
