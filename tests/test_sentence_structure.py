@@ -97,5 +97,15 @@ class SentenceStructureTests(unittest.TestCase):
         )
 
 
+    def test_up_to_and_approximate_qualifiers(self):
+        upper = analyze_statement("Range is up to 25 km.")
+        self.assertIn("maximum", upper.measurements[0].qualifiers)
+        self.assertIn("up_to", upper.measurements[0].qualifiers)
+
+        approximate = analyze_statement("Charging time is around 6 h.")
+        self.assertIn("approximate", approximate.measurements[0].qualifiers)
+
+
+
 if __name__ == "__main__":
     unittest.main()
