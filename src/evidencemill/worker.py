@@ -277,6 +277,12 @@ def _candidate_from_measurement(observation: EvidenceObservation) -> FactCandida
     if value_kind == "alternatives":
         reason = reason or "alternative_values_require_applicability"
         confidence -= 0.15
+    elif value_kind == "tolerance":
+        reason = reason or "tolerance_requires_semantic_handling"
+        confidence -= 0.10
+    elif value_kind == "tuple":
+        reason = reason or "tuple_axes_require_semantic_handling"
+        confidence -= 0.15
 
     readiness = READY if reason is None else REVIEW
 
