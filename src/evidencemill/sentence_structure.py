@@ -264,6 +264,19 @@ def analyze_statement(text: str) -> StatementStructure:
             else:
                 qualifiers.add(word)
 
+        prior_words = words[max(0, index - 5):index]
+        if len(prior_words) >= 2 and prior_words[-2:] == ["up", "to"]:
+            qualifiers.update({"maximum", "up_to"})
+        if len(prior_words) >= 2 and prior_words[-2:] == ["at", "least"]:
+            qualifiers.update({"minimum", "at_least"})
+        if len(prior_words) >= 2 and prior_words[-2:] == ["at", "most"]:
+            qualifiers.update({"maximum", "at_most"})
+        if any(
+            word in {"around", "about", "approximately", "approx"}
+            for word in prior_words
+        ):
+            qualifiers.add("approximate")
+
         nearest = None
         if components and not ({"combined", "total", "system"} & qualifier_words):
             local_components = [
