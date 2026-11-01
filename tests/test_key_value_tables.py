@@ -151,6 +151,37 @@ class KeyValueTableTests(unittest.TestCase):
         self.assertEqual(range_candidate.predicate_hint, "range")
         self.assertIn("subject_unresolved", range_candidate.review_reasons)
 
+        caveat_rows = (
+            ("General information", ""),
+            (
+                "Range",
+                "Up to 25 km (subject to variations based on rider weight, road conditions and temperature)",
+            ),
+        )
+        caveat_doc = Document(
+            source_id="manual",
+            blocks=(
+                TableBlock(
+                    rows=caveat_rows,
+                    block_id="table-caveat",
+                    header_rows=None,
+                    layout="auto",
+                ),
+            ),
+        )
+        caveat_result = FactPrepWorker().run_document(caveat_doc)
+        caveat_range = [
+            item for item in caveat_result.candidates
+            if item.observation_kind == "measurement"
+        ][0]
+        self.assertIn("up_to", caveat_range.qualifiers)
+        self.assertEqual(
+            caveat_range.conditions["source_caveats"],
+            [
+                "subject to variations based on rider weight, road conditions and temperature"
+            ],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
