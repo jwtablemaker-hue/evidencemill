@@ -20,5 +20,14 @@ class DocumentPipelineTests(unittest.TestCase):
         self.assertEqual(measurements[1].context["scope"], "system")
 
 
+    def test_prose_voltage_does_not_crash(self):
+        doc = parse_text("The motor operates at 48 V.", source_id="voltage-test")
+        observations = process_document(doc)
+        measurements = [item for item in observations if item.kind == "measurement"]
+        self.assertEqual(len(measurements), 1)
+        self.assertEqual(measurements[0].source.source_id, "voltage-test")
+        self.assertEqual(measurements[0].unit, "V")
+
+
 if __name__ == "__main__":
     unittest.main()
