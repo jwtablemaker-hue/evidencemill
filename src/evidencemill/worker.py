@@ -208,7 +208,7 @@ def _candidate_from_table(observation: EvidenceObservation) -> FactCandidate:
         value=observation.value,
         unit=observation.unit,
         qualifiers=tuple(observation.qualifiers),
-        context=dict(observation.context),
+        context={**dict(observation.context), "heading_subject_hint": heading_hint},
         readiness=readiness,
         review_reason=reason,
         confidence=confidence,
@@ -217,11 +217,16 @@ def _candidate_from_table(observation: EvidenceObservation) -> FactCandidate:
 
 def _candidate_from_measurement(observation: EvidenceObservation) -> FactCandidate:
     predicate, reason = _measurement_predicate(observation)
-    subject = observation.subject_hint or _meaningful_heading(observation.context)
+    scope = observation.context.get("scope")
+    heading_hint = _meaningful_heading(observation.context)
+    subject = observation.subject_hint
+    if subject is None and scope == "system":
+        subject = "system"
+
     confidence = 0.94
 
     if subject is None:
-        reason = reason or "subject_unresolved"
+        reason = reason or ("subject_from_heading_requires_confirmation" if heading_hint else "subject_unresolved")
         confidence -= 0.22
     if predicate is None:
         reason = reason or "predicate_unresolved"
@@ -230,7 +235,6 @@ def _candidate_from_measurement(observation: EvidenceObservation) -> FactCandida
         reason = reason or "source_marked_ambiguous"
         confidence -= 0.15
 
-    scope = observation.context.get("scope")
     if scope == "unknown":
         reason = reason or "scope_unresolved"
         confidence -= 0.15
