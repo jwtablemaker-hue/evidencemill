@@ -32,9 +32,19 @@ def create_sqlite_fact_staging(
           context_json TEXT NOT NULL,
           readiness TEXT NOT NULL,
           review_reason TEXT,
+          review_reasons_json TEXT NOT NULL DEFAULT '[]',
           confidence REAL NOT NULL
         )"""
     )
+    existing_columns = {
+        str(row[1])
+        for row in connection.execute(f"PRAGMA table_info({quoted})")
+    }
+    if "review_reasons_json" not in existing_columns:
+        connection.execute(
+            f"""ALTER TABLE {quoted}
+                ADD COLUMN review_reasons_json TEXT NOT NULL DEFAULT '[]'"""
+        )
 
 
 def _row(candidate: FactCandidate) -> tuple:
@@ -53,6 +63,11 @@ def _row(candidate: FactCandidate) -> tuple:
         json.dumps(candidate.context, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str),
         candidate.readiness,
         candidate.review_reason,
+        json.dumps(
+            list(candidate.review_reasons),
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ),
         candidate.confidence,
     )
 
@@ -68,8 +83,8 @@ def stage_candidates_sqlite(
     sql = f"""INSERT INTO {quoted}(
       candidate_id,source_id,source_location,source_text,observation_kind,
       subject_hint,predicate_hint,value_json,unit,qualifiers_json,
-      conditions_json,context_json,readiness,review_reason,confidence
-    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      conditions_json,context_json,readiness,review_reason,review_reasons_json,confidence
+    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     ON CONFLICT(candidate_id) DO UPDATE SET
       source_text=excluded.source_text,
       subject_hint=excluded.subject_hint,
@@ -81,6 +96,7 @@ def stage_candidates_sqlite(
       context_json=excluded.context_json,
       readiness=excluded.readiness,
       review_reason=excluded.review_reason,
+      review_reasons_json=excluded.review_reasons_json,
       confidence=excluded.confidence"""
     rows = [_row(candidate) for candidate in candidates]
     connection.executemany(sql, rows)
