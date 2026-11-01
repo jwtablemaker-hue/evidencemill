@@ -55,7 +55,17 @@ def parse_pdf(path: str | Path, *, source_id: str | None = None, ocr_scanned: bo
                 if not rows:
                     continue
                 counter += 1
-                blocks.append(TableBlock(rows=tuple(tuple("" if cell is None else str(cell).strip() for cell in row) for row in rows), block_id=f"table-{counter}", page=page_no, bbox=_bbox(getattr(table, "bbox", None))))
+                blocks.append(TableBlock(
+                    rows=tuple(
+                        tuple("" if cell is None else str(cell).strip() for cell in row)
+                        for row in rows
+                    ),
+                    block_id=f"table-{counter}",
+                    page=page_no,
+                    bbox=_bbox(getattr(table, "bbox", None)),
+                    header_rows=None,
+                    layout="auto",
+                ))
 
         for image in page.get_images(full=True):
             xref = image[0]
