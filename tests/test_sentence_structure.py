@@ -88,6 +88,14 @@ class SentenceStructureTests(unittest.TestCase):
             ["battery", "battery", "battery"],
         )
 
+    def test_distance_unit_is_parsed(self):
+        result = analyze_statement("Range is up to 25 km.")
+        self.assertEqual(len(result.measurements), 1)
+        self.assertEqual(
+            (result.measurements[0].value, result.measurements[0].unit),
+            (25.0, "km"),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

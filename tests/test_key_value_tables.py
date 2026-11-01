@@ -96,6 +96,61 @@ class KeyValueTableTests(unittest.TestCase):
         self.assertEqual(motor_power[0].readiness, REVIEW)
         self.assertEqual(motor_power[0].review_reason, "power_rating_unspecified")
 
+ 
+    def test_measurement_keeps_explicit_row_property(self):
+        rows = (
+            ("General information", ""),
+            ("Max speed", "25 km/h"),
+            ("Low voltage protection", "31V +/- 0.5V"),
+            ("Range", "Up to 25 km"),
+        )
+        doc = Document(
+            source_id="manual",
+            blocks=(
+                TableBlock(
+                    rows=rows,
+                    block_id="table-1",
+                    header_rows=None,
+                    layout="auto",
+                ),
+            ),
+        )
+        result = FactPrepWorker().run_document(doc)
+
+        speed = [
+            item for item in result.candidates
+            if item.observation_kind == "measurement"
+            and item.value == 25.0
+        ][0]
+        self.assertEqual(speed.predicate_hint, "maximum.speed")
+        self.assertIn("subject_unresolved", speed.review_reasons)
+        self.assertEqual(
+            speed.source.raw_text,
+            "Max speed: 25 km/h",
+        )
+        self.assertEqual(speed.context["measurement_text"], "25 km/h")
+
+        low_voltage = [
+            item for item in result.candidates
+            if item.observation_kind == "measurement"
+            and item.value == 31.0
+        ][0]
+        self.assertEqual(low_voltage.predicate_hint, "low.voltage.protection")
+        self.assertIn("subject_unresolved", low_voltage.review_reasons)
+        self.assertIn(
+            "tolerance_requires_semantic_handling",
+            low_voltage.review_reasons,
+        )
+
+        range_candidate = [
+            item for item in result.candidates
+            if item.observation_kind == "measurement"
+            and item.value == 25.0
+            and item.unit == "km"
+        ][0]
+        self.assertEqual(range_candidate.predicate_hint, "range")
+        self.assertIn("subject_unresolved", range_candidate.review_reasons)
+
 
 if __name__ == "__main__":
     unittest.main()

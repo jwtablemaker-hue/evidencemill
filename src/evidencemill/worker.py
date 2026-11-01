@@ -27,6 +27,10 @@ _UNIT_QUANTITIES = {
     "Ah": "capacity",
     "kmh": "speed",
     "mph": "speed",
+    "km": "length",
+    "mi": "length",
+    "m": "length",
+    "ft": "length",
     "kg": "mass",
     "lb": "mass",
     "mm": "length",
@@ -79,6 +83,7 @@ class FactCandidate:
     context: dict[str, Any] = field(default_factory=dict)
     readiness: str = REVIEW
     review_reason: str | None = None
+    review_reasons: tuple[str, ...] = ()
     confidence: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
@@ -118,7 +123,17 @@ class WorkerResult:
 def _slug(value: str | None) -> str | None:
     if not value:
         return None
-    text = re.sub(r"[^a-z0-9]+", ".", value.casefold()).strip(".")
+    parts = [
+        part
+        for part in re.split(r"[^a-z0-9]+", value.casefold())
+        if part
+    ]
+    aliases = {
+        "max": "maximum",
+        "min": "minimum",
+        "temp": "temperature",
+    }
+    text = ".".join(aliases.get(part, part) for part in parts)
     return text or None
 
 
@@ -164,6 +179,18 @@ def _measurement_predicate(observation: EvidenceObservation) -> tuple[str | None
     if quantity is None:
         return None, "unit_has_no_generic_quantity"
 
+    explicit_property = _slug(
+        observation.property_hint
+        or observation.context.get("table_property")
+    )
+    subject_slug = _slug(observation.subject_hint)
+
+    if explicit_property and subject_slug:
+        if explicit_property == subject_slug:
+            explicit_property = None
+        elif explicit_property.startswith(subject_slug + "."):
+            explicit_property = explicit_property[len(subject_slug) + 1:] or None
+
     qualifiers = {str(q).casefold() for q in observation.qualifiers}
     prefix = None
     if "peak" in qualifiers or "maximum" in qualifiers:
@@ -172,6 +199,17 @@ def _measurement_predicate(observation: EvidenceObservation) -> tuple[str | None
         prefix = "rated"
     elif "nominal" in qualifiers:
         prefix = "nominal"
+
+    if explicit_property:
+        predicate = explicit_property
+        terminal = predicate.split(".")[-1]
+        has_rating_basis = any(
+            part in {"rated", "nominal", "peak", "maximum", "output", "input"}
+            for part in predicate.split(".")
+        )
+        if terminal in {"power", "voltage"} and not has_rating_basis:
+            return predicate, f"{terminal}_rating_unspecified"
+        return predicate, None
 
     predicate = ".".join(part for part in (prefix, quantity) if part)
 
@@ -245,12 +283,13 @@ def _candidate_from_table(observation: EvidenceObservation) -> FactCandidate:
         context=context,
         readiness=readiness,
         review_reason=reason,
+        review_reasons=(reason,) if reason else (),
         confidence=confidence,
     )
 
 
 def _candidate_from_measurement(observation: EvidenceObservation) -> FactCandidate:
-    predicate, reason = _measurement_predicate(observation)
+    predicate, predicate_reason = _measurement_predicate(observation)
     scope = observation.context.get("scope")
     heading_hint = _meaningful_heading(observation.context)
     subject = observation.subject_hint
@@ -258,33 +297,41 @@ def _candidate_from_measurement(observation: EvidenceObservation) -> FactCandida
         subject = "system"
 
     confidence = 0.94
+    reasons: list[str] = []
+    if predicate_reason:
+        reasons.append(predicate_reason)
 
     if subject is None:
-        reason = reason or ("subject_from_heading_requires_confirmation" if heading_hint else "subject_unresolved")
+        reasons.append(
+            "subject_from_heading_requires_confirmation"
+            if heading_hint
+            else "subject_unresolved"
+        )
         confidence -= 0.22
     if predicate is None:
-        reason = reason or "predicate_unresolved"
+        reasons.append("predicate_unresolved")
         confidence -= 0.25
     if observation.ambiguous:
-        reason = reason or "source_marked_ambiguous"
+        reasons.append("source_marked_ambiguous")
         confidence -= 0.15
 
     if scope == "unknown":
-        reason = reason or "scope_unresolved"
+        reasons.append("scope_unresolved")
         confidence -= 0.15
 
     value_kind = observation.context.get("value_kind", "scalar")
     if value_kind == "alternatives":
-        reason = reason or "alternative_values_require_applicability"
+        reasons.append("alternative_values_require_applicability")
         confidence -= 0.15
     elif value_kind == "tolerance":
-        reason = reason or "tolerance_requires_semantic_handling"
+        reasons.append("tolerance_requires_semantic_handling")
         confidence -= 0.10
     elif value_kind == "tuple":
-        reason = reason or "tuple_axes_require_semantic_handling"
+        reasons.append("tuple_axes_require_semantic_handling")
         confidence -= 0.15
 
-    readiness = READY if reason is None else REVIEW
+    review_reasons = tuple(dict.fromkeys(reasons))
+    readiness = READY if not review_reasons else REVIEW
 
     return FactCandidate(
         candidate_id=_stable_id(
@@ -309,10 +356,10 @@ def _candidate_from_measurement(observation: EvidenceObservation) -> FactCandida
         },
         context={**dict(observation.context), "heading_subject_hint": heading_hint},
         readiness=readiness,
-        review_reason=reason,
+        review_reason=review_reasons[0] if review_reasons else None,
+        review_reasons=review_reasons,
         confidence=max(0.0, min(1.0, confidence)),
     )
-
 
 def _candidate_from_figure_callout(observation: EvidenceObservation) -> FactCandidate:
     reason = None if observation.subject_hint else "callout_target_unresolved"
@@ -333,6 +380,7 @@ def _candidate_from_figure_callout(observation: EvidenceObservation) -> FactCand
         context=dict(observation.context),
         readiness=READY if reason is None else REVIEW,
         review_reason=reason,
+        review_reasons=(reason,) if reason else (),
         confidence=0.90 if reason is None else 0.55,
     )
 
