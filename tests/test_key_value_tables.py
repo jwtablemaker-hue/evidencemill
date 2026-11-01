@@ -223,5 +223,49 @@ class KeyValueTableTests(unittest.TestCase):
 
 
 
+    def test_charger_property_supplies_component_scope_across_comma(self):
+        rows = (
+            ("Electrical system", ""),
+            (
+                "Charger",
+                "EU Standard battery charger DC 2.1, 42V 1.5A",
+            ),
+        )
+        doc = Document(
+            source_id="manual",
+            blocks=(
+                TableBlock(
+                    rows=rows,
+                    block_id="table-charger",
+                    header_rows=None,
+                    layout="auto",
+                ),
+            ),
+        )
+        result = FactPrepWorker().run_document(doc)
+        measurements = [
+            item for item in result.candidates
+            if item.observation_kind == "measurement"
+        ]
+        self.assertEqual(
+            [(item.value, item.unit) for item in measurements],
+            [(42.0, "V"), (1.5, "A")],
+        )
+        self.assertEqual(
+            [item.subject_hint for item in measurements],
+            ["charger", "charger"],
+        )
+        self.assertEqual(
+            [item.conditions["scope"] for item in measurements],
+            ["component", "component"],
+        )
+        self.assertEqual(
+            measurements[0].review_reasons,
+            ("voltage_rating_unspecified",),
+        )
+        self.assertEqual(measurements[1].review_reasons, ())
+
+
+
 if __name__ == "__main__":
     unittest.main()
