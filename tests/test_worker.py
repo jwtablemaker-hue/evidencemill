@@ -50,6 +50,20 @@ class FactPrepWorkerTests(unittest.TestCase):
         self.assertEqual(candidate.readiness, REVIEW)
         self.assertEqual(candidate.review_reason, "power_rating_unspecified")
 
+    def test_maximum_speed_is_not_rewritten_as_peak(self):
+        observation = EvidenceObservation(
+            kind="measurement",
+            source=SourceRef("manual", "table-1:r2c2:m1", "25 km/h"),
+            value=25.0,
+            unit="kmh",
+            subject_hint="system",
+            qualifiers=("maximum",),
+            context={"scope": "system", "placement": None, "multiplicity": None},
+        )
+        candidate = observation_to_candidate(observation)
+        self.assertEqual(candidate.readiness, READY)
+        self.assertEqual(candidate.predicate_hint, "maximum.speed")
+
     def test_worker_report_counts_only_fact_candidates(self):
         observations = [
             EvidenceObservation(
