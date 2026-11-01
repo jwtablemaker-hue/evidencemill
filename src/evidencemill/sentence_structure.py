@@ -43,6 +43,14 @@ _COMPONENT_WORDS = {
     "wheel": "wheel", "wheels": "wheel",
     "suspension": "suspension", "shock": "suspension", "shocks": "suspension",
     "light": "lighting", "lights": "lighting", "lighting": "lighting",
+    "controller": "controller", "controllers": "controller",
+    "display": "display", "displays": "display",
+    "connector": "connector", "connectors": "connector",
+    "port": "port", "ports": "port",
+    "throttle": "throttle", "throttles": "throttle",
+    "caliper": "caliper", "calipers": "caliper",
+    "rotor": "rotor", "rotors": "rotor",
+    "drum": "drum", "drums": "drum",
 }
 
 _PHRASE_FLAGS = {
