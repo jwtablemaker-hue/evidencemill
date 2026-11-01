@@ -30,6 +30,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--pretty", action="store_true")
     parser.add_argument("--ocr", action="store_true", help="OCR scanned PDF pages when text is absent")
     parser.add_argument("--facts", action="store_true", help="Run the fact-prep worker")
+    parser.add_argument(
+        "--facts-only",
+        action="store_true",
+        help="Emit fact candidates and report without serializing observations",
+    )
     parser.add_argument("--sqlite-staging", default=None, metavar="DB", help="Stage fact candidates into SQLite")
     parser.add_argument("--benchmark", type=int, default=0, metavar="REPEATS", help="Benchmark the input set")
     args = parser.parse_args(argv)
@@ -59,10 +64,11 @@ def main(argv: list[str] | None = None) -> int:
                     "metadata": document.metadata,
                     "block_count": len(document.blocks),
                 },
-                "observations": [asdict(item) for item in observations],
             }
+            if not args.facts_only:
+                payload["observations"] = [asdict(item) for item in observations]
 
-            if args.facts or connection is not None:
+            if args.facts or args.facts_only or connection is not None:
                 result = worker.run_observations(observations, source_id=document.source_id)
                 payload["fact_candidates"] = [item.to_dict() for item in result.candidates]
                 payload["worker_report"] = result.report.to_dict()
