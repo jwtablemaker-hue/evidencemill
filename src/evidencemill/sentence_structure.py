@@ -26,6 +26,7 @@ _UNIT_MAP = {
     "wh": "Wh", "ah": "Ah", "kw": "kW", "w": "W", "v": "V", "a": "A",
     "mm": "mm", "cm": "cm", "kg": "kg",
     "lb": "lb", "lbs": "lb", "in": "in", "inch": "in", "inches": "in",
+    "\"": "in", "″": "in",
     "h": "h", "hr": "h", "hrs": "h", "hour": "h", "hours": "h",
     "min": "min", "mins": "min", "minute": "min", "minutes": "min",
     "s": "s", "sec": "s", "secs": "s", "second": "s", "seconds": "s",
@@ -108,11 +109,12 @@ class ComponentMention:
 
 @dataclass(frozen=True)
 class Measurement:
-    value: float | tuple[float, float]
+    value: float | tuple[float, ...]
     unit: str
     text: str
     token_index: int
     value_kind: str = "scalar"
+    tolerance: float | None = None
     component_kind: str | None = None
     placement: str | None = None
     scope: str = "unknown"
