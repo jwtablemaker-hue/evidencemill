@@ -133,7 +133,14 @@ class _Collector(HTMLParser):
             elif tag == "table":
                 self.in_table = False
                 if self.table_rows:
-                    self.blocks.append(TableBlock(rows=tuple(tuple(row) for row in self.table_rows), block_id=self._next_id("table"), caption=self.table_caption_text, heading_path=tuple(self.heading_path), header_rows=max(1, self.table_header_row_count)))
+                    self.blocks.append(TableBlock(
+                        rows=tuple(tuple(row) for row in self.table_rows),
+                        block_id=self._next_id("table"),
+                        caption=self.table_caption_text,
+                        heading_path=tuple(self.heading_path),
+                        header_rows=self.table_header_row_count or None,
+                        layout="matrix" if self.table_header_row_count else "auto",
+                    ))
             return
         if self.in_figure:
             if tag == "figcaption" and self.figure_caption is not None:
