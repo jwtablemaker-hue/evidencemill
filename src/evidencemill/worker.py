@@ -38,6 +38,13 @@ _UNIT_QUANTITIES = {
     "kPa": "pressure",
     "psi": "pressure",
     "bar": "pressure",
+    "degC": "temperature",
+    "degF": "temperature",
+    "s": "duration",
+    "day": "duration",
+    "week": "duration",
+    "month": "duration",
+    "year": "duration",
 }
 
 _GENERIC_HEADINGS = {
@@ -237,6 +244,11 @@ def _candidate_from_measurement(observation: EvidenceObservation) -> FactCandida
 
     if scope == "unknown":
         reason = reason or "scope_unresolved"
+        confidence -= 0.15
+
+    value_kind = observation.context.get("value_kind", "scalar")
+    if value_kind == "alternatives":
+        reason = reason or "alternative_values_require_applicability"
         confidence -= 0.15
 
     readiness = READY if reason is None else REVIEW
