@@ -183,5 +183,45 @@ class KeyValueTableTests(unittest.TestCase):
         )
 
 
+    def test_speed_mode_row_becomes_conditioned_maximum_speed_candidates(self):
+        rows = (
+            ("General information", ""),
+            (
+                "Speed",
+                "L1: <= 6km/h | L2: <= 20km/h | L3: <= 25km/h (max speed)",
+            ),
+        )
+        doc = Document(
+            source_id="manual",
+            blocks=(
+                TableBlock(
+                    rows=rows,
+                    block_id="table-speed",
+                    header_rows=None,
+                    layout="auto",
+                ),
+            ),
+        )
+        result = FactPrepWorker().run_document(doc)
+        speeds = [
+            item for item in result.candidates
+            if item.observation_kind == "measurement"
+        ]
+        self.assertEqual(len(speeds), 3)
+        self.assertEqual(
+            [item.predicate_hint for item in speeds],
+            ["maximum.speed", "maximum.speed", "maximum.speed"],
+        )
+        self.assertEqual(
+            [item.conditions["local_label"] for item in speeds],
+            ["L1", "L2", "L3"],
+        )
+        self.assertEqual(
+            [item.conditions["comparison"] for item in speeds],
+            ["<=", "<=", "<="],
+        )
+
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -107,5 +107,31 @@ class SentenceStructureTests(unittest.TestCase):
 
 
 
+    def test_mode_labels_and_upper_bounds_are_preserved(self):
+        result = analyze_statement(
+            "Speed: L1: <= 6km/h | L2: <= 20km/h | L3: <= 25km/h"
+        )
+        self.assertEqual(
+            [item.value for item in result.measurements],
+            [6.0, 20.0, 25.0],
+        )
+        self.assertEqual(
+            [item.local_label for item in result.measurements],
+            ["L1", "L2", "L3"],
+        )
+        self.assertEqual(
+            [item.comparison for item in result.measurements],
+            ["<=", "<=", "<="],
+        )
+        self.assertTrue(
+            all(
+                "upper_bound" in item.qualifiers
+                and "maximum" in item.qualifiers
+                for item in result.measurements
+            )
+        )
+
+
+
 if __name__ == "__main__":
     unittest.main()

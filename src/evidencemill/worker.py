@@ -193,15 +193,23 @@ def _measurement_predicate(observation: EvidenceObservation) -> tuple[str | None
 
     qualifiers = {str(q).casefold() for q in observation.qualifiers}
     prefix = None
-    if "peak" in qualifiers or "maximum" in qualifiers:
+    if "peak" in qualifiers:
         prefix = "peak"
+    elif "maximum" in qualifiers:
+        prefix = "peak" if quantity == "power" else "maximum"
+    elif "minimum" in qualifiers:
+        prefix = "minimum"
     elif "rated" in qualifiers:
         prefix = "rated"
     elif "nominal" in qualifiers:
         prefix = "nominal"
 
     if explicit_property:
-        predicate = explicit_property
+        predicate = (
+            ".".join((prefix, quantity))
+            if prefix and explicit_property == quantity
+            else explicit_property
+        )
         terminal = predicate.split(".")[-1]
         has_rating_basis = any(
             part in {"rated", "nominal", "peak", "maximum", "output", "input"}
@@ -356,6 +364,8 @@ def _candidate_from_measurement(observation: EvidenceObservation) -> FactCandida
             "scope": scope,
             "placement": observation.context.get("placement"),
             "multiplicity": observation.context.get("multiplicity"),
+            "comparison": observation.context.get("comparison"),
+            "local_label": observation.context.get("local_label"),
             "source_caveats": observation.context.get("source_caveats"),
         },
         context={**dict(observation.context), "heading_subject_hint": heading_hint},
