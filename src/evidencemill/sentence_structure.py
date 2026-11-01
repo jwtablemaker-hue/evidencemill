@@ -173,7 +173,7 @@ def _same_clause(text: str, left: Token, right: Token) -> bool:
     if end <= start:
         return True
     segment = text[start:end]
-    return re.search(r"[,;!?]|(?<!\\d)\\.(?!\\d)", segment) is None
+    return re.search(r"[,;!?]|(?<!\d)\.(?!\d)", segment) is None
 
 
 def _near_tokens(
