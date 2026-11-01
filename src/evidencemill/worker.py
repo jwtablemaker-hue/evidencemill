@@ -118,7 +118,17 @@ class WorkerResult:
 def _slug(value: str | None) -> str | None:
     if not value:
         return None
-    text = re.sub(r"[^a-z0-9]+", ".", value.casefold()).strip(".")
+    parts = [
+        part
+        for part in re.split(r"[^a-z0-9]+", value.casefold())
+        if part
+    ]
+    aliases = {
+        "max": "maximum",
+        "min": "minimum",
+        "temp": "temperature",
+    }
+    text = ".".join(aliases.get(part, part) for part in parts)
     return text or None
 
 
@@ -164,6 +174,18 @@ def _measurement_predicate(observation: EvidenceObservation) -> tuple[str | None
     if quantity is None:
         return None, "unit_has_no_generic_quantity"
 
+    explicit_property = _slug(
+        observation.property_hint
+        or observation.context.get("table_property")
+    )
+    subject_slug = _slug(observation.subject_hint)
+
+    if explicit_property and subject_slug:
+        if explicit_property == subject_slug:
+            explicit_property = None
+        elif explicit_property.startswith(subject_slug + "."):
+            explicit_property = explicit_property[len(subject_slug) + 1:] or None
+
     qualifiers = {str(q).casefold() for q in observation.qualifiers}
     prefix = None
     if "peak" in qualifiers or "maximum" in qualifiers:
@@ -172,6 +194,17 @@ def _measurement_predicate(observation: EvidenceObservation) -> tuple[str | None
         prefix = "rated"
     elif "nominal" in qualifiers:
         prefix = "nominal"
+
+    if explicit_property:
+        predicate = explicit_property
+        terminal = predicate.split(".")[-1]
+        has_rating_basis = any(
+            part in {"rated", "nominal", "peak", "maximum", "output", "input"}
+            for part in predicate.split(".")
+        )
+        if terminal in {"power", "voltage"} and not has_rating_basis:
+            return predicate, f"{terminal}_rating_unspecified"
+        return predicate, None
 
     predicate = ".".join(part for part in (prefix, quantity) if part)
 
