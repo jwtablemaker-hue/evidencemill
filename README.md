@@ -82,6 +82,7 @@ duplicates.
 Examples:
 
     evidencemill manual.html --facts --pretty
+    evidencemill manual.pdf --facts-only --sqlite-staging facts.sqlite
     evidencemill specs.csv --facts --sqlite-staging facts.sqlite
     evidencemill manual.md notes.html specs.csv --benchmark 20
 
