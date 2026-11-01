@@ -166,8 +166,10 @@ def _measurement_predicate(observation: EvidenceObservation) -> tuple[str | None
 
     qualifiers = {str(q).casefold() for q in observation.qualifiers}
     prefix = None
-    if "peak" in qualifiers or "maximum" in qualifiers:
+    if "peak" in qualifiers:
         prefix = "peak"
+    elif "maximum" in qualifiers:
+        prefix = "maximum"
     elif "rated" in qualifiers:
         prefix = "rated"
     elif "nominal" in qualifiers:
