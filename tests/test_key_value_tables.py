@@ -124,6 +124,11 @@ class KeyValueTableTests(unittest.TestCase):
         ][0]
         self.assertEqual(speed.predicate_hint, "maximum.speed")
         self.assertIn("subject_unresolved", speed.review_reasons)
+        self.assertEqual(
+            speed.source.raw_text,
+            "Max speed: 25 km/h",
+        )
+        self.assertEqual(speed.context["measurement_text"], "25 km/h")
 
         low_voltage = [
             item for item in result.candidates
