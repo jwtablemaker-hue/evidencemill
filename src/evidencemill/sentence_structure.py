@@ -169,7 +169,8 @@ def _same_clause(text: str, left: Token, right: Token) -> bool:
     end = max(left.start, right.start)
     if end <= start:
         return True
-    return re.search(r"[,;.!?]", text[start:end]) is None
+    segment = text[start:end]
+    return re.search(r"[,;!?]|(?<!\\d)\\.(?!\\d)", segment) is None
 
 
 def _near_tokens(
