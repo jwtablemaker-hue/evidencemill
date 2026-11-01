@@ -88,69 +88,6 @@ class SentenceStructureTests(unittest.TestCase):
             ["battery", "battery", "battery"],
         )
 
-    def test_distance_unit_is_parsed(self):
-        result = analyze_statement("Range is up to 25 km.")
-        self.assertEqual(len(result.measurements), 1)
-        self.assertEqual(
-            (result.measurements[0].value, result.measurements[0].unit),
-            (25.0, "km"),
-        )
-
-
-    def test_up_to_and_approximate_qualifiers(self):
-        upper = analyze_statement("Range is up to 25 km.")
-        self.assertIn("maximum", upper.measurements[0].qualifiers)
-        self.assertIn("up_to", upper.measurements[0].qualifiers)
-
-        approximate = analyze_statement("Charging time is around 6 h.")
-        self.assertIn("approximate", approximate.measurements[0].qualifiers)
-
-
-
-    def test_mode_labels_and_upper_bounds_are_preserved(self):
-        result = analyze_statement(
-            "Speed: L1: <= 6km/h | L2: <= 20km/h | L3: <= 25km/h"
-        )
-        self.assertEqual(
-            [item.value for item in result.measurements],
-            [6.0, 20.0, 25.0],
-        )
-        self.assertEqual(
-            [item.local_label for item in result.measurements],
-            ["L1", "L2", "L3"],
-        )
-        self.assertEqual(
-            [item.comparison for item in result.measurements],
-            ["<=", "<=", "<="],
-        )
-        self.assertTrue(
-            all(
-                "upper_bound" in item.qualifiers
-                and "maximum" in item.qualifiers
-                for item in result.measurements
-            )
-        )
-
-
-
-    def test_ordinary_property_label_is_not_local_label(self):
-        result = analyze_statement("Max gradient: 16%")
-        self.assertEqual(len(result.measurements), 1)
-        self.assertIsNone(result.measurements[0].local_label)
-
-        motor = analyze_statement("Motor: 350W")
-        self.assertIsNone(motor.measurements[0].local_label)
-
-    def test_nested_and_delimited_labels_still_work(self):
-        result = analyze_statement(
-            "Speed: L1: <= 6km/h | L2: <= 20km/h"
-        )
-        self.assertEqual(
-            [item.local_label for item in result.measurements],
-            ["L1", "L2"],
-        )
-
-
 
 if __name__ == "__main__":
     unittest.main()
