@@ -4,11 +4,25 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "evidencemill"
-version = "0.1.0"
+version = "0.2.0"
 description = "Deterministic document-structure extraction before semantic agents"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = []
+
+[project.optional-dependencies]
+pdf = ["PyMuPDF>=1.24"]
+ocr = ["Pillow>=10", "pytesseract>=0.3.10"]
+vision = ["opencv-python-headless>=4.10"]
+all = [
+  "PyMuPDF>=1.24",
+  "Pillow>=10",
+  "pytesseract>=0.3.10",
+  "opencv-python-headless>=4.10",
+]
+
+[project.scripts]
+evidencemill = "evidencemill.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

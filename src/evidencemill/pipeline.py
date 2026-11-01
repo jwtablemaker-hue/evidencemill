@@ -1,0 +1,109 @@
+from __future__ import annotations
+
+from pathlib import Path
+import re
+
+from evidencemill.cross_reference import resolve_cross_references
+from evidencemill.document import Document, FigureBlock, TableBlock, TextBlock
+from evidencemill.illustration import associate_callouts
+from evidencemill.models import EvidenceObservation, SourceRef
+from evidencemill.sentence_structure import analyze_statement, requires_scoped_review
+from evidencemill.table_context import parse_table
+
+
+_SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+(?=[A-Z0-9])")
+
+
+def split_sentences(text: str) -> tuple[str, ...]:
+    parts = tuple(part.strip() for part in _SENTENCE_SPLIT.split(text) if part.strip())
+    return parts or ((text.strip(),) if text.strip() else ())
+
+
+def _location(block, suffix: str | None = None) -> str:
+    parts = []
+    if getattr(block, "page", None) is not None:
+        parts.append(f"page-{block.page}")
+    parts.append(block.block_id)
+    if suffix:
+        parts.append(suffix)
+    return ":".join(parts)
+
+
+def _text_observations(document: Document, block: TextBlock) -> list[EvidenceObservation]:
+    out = []
+    if block.kind == "heading":
+        out.append(EvidenceObservation(kind="heading", source=SourceRef(document.source_id, _location(block), block.text), value=block.text, context={"heading_path": list(block.heading_path)}))
+        return out
+    for index, sentence in enumerate(split_sentences(block.text), start=1):
+        structure = analyze_statement(sentence)
+        out.append(EvidenceObservation(
+            kind="statement",
+            source=SourceRef(document.source_id, _location(block, f"s{index}"), sentence),
+            value=sentence,
+            qualifiers=tuple(sorted(structure.flags)),
+            context={"block_id": block.block_id, "heading_path": list(block.heading_path), "structure": structure.to_dict()},
+            ambiguous=requires_scoped_review(structure),
+        ))
+        for measurement_index, measurement in enumerate(structure.measurements, start=1):
+            out.append(EvidenceObservation(
+                kind="measurement",
+                source=SourceRef(document.source_id, _location(block, f"s{index}:m{measurement_index}"), measurement.text),
+                value=measurement.value,
+                unit=measurement.unit,
+                subject_hint=measurement.component_kind,
+                qualifiers=measurement.qualifiers,
+                context={"scope": measurement.scope, "placement": measurement.placement, "multiplicity": measurement.multiplicity, "statement": sentence, "heading_path": list(block.heading_path)},
+                ambiguous=measurement.scope == "unknown",
+            ))
+    return out
+
+
+def _figure_observations(document: Document, block: FigureBlock) -> list[EvidenceObservation]:
+    out = []
+    if block.caption:
+        out.append(EvidenceObservation(kind="figure_caption", source=SourceRef(document.source_id, _location(block, "caption"), block.caption), value=block.caption, context={"heading_path": list(block.heading_path)}))
+    associations = associate_callouts(block.labels) if block.labels else ()
+    association_by_callout = {item.callout: item for item in associations}
+    for index, word in enumerate(block.labels, start=1):
+        out.append(EvidenceObservation(kind="figure_label", source=SourceRef(document.source_id, _location(block, f"label-{index}"), word.text), value=word.text, context={"bbox": list(word.bbox), "confidence": word.confidence}))
+    for callout in block.callouts:
+        relation = association_by_callout.get(callout)
+        out.append(EvidenceObservation(kind="figure_callout", source=SourceRef(document.source_id, _location(block, f"callout-{callout}"), callout), value=callout, subject_hint=relation.target_label if relation else None, context={"distance": relation.distance if relation else None}, ambiguous=relation is None or relation.target_label is None))
+    return out
+
+
+def process_document(document: Document) -> list[EvidenceObservation]:
+    observations: list[EvidenceObservation] = []
+    for block in document.blocks:
+        if isinstance(block, TextBlock):
+            observations.extend(_text_observations(document, block))
+        elif isinstance(block, TableBlock):
+            observations.extend(parse_table(block.rows, source_id=document.source_id, header_rows=block.header_rows, row_header_columns=block.row_header_columns, location=_location(block)))
+        elif isinstance(block, FigureBlock):
+            observations.extend(_figure_observations(document, block))
+    for ref in resolve_cross_references(document):
+        observations.append(EvidenceObservation(kind="cross_reference", source=SourceRef(document.source_id, ref.source_block_id, ref.text), value=ref.label, property_hint=ref.kind, context={"target_block_id": ref.target_block_id}, ambiguous=ref.target_block_id is None))
+    return observations
+
+
+def ingest_path(path: str | Path, *, source_id: str | None = None, ocr: bool = False) -> Document:
+    p = Path(path)
+    suffix = p.suffix.casefold()
+    source = source_id or p.name
+    if suffix in {".txt", ".md", ".rst"}:
+        from evidencemill.ingest.text import parse_text
+        return parse_text(p.read_text(encoding="utf-8", errors="replace"), source_id=source)
+    if suffix in {".html", ".htm"}:
+        from evidencemill.ingest.html import parse_html_file
+        return parse_html_file(p, source_id=source)
+    if suffix in {".csv", ".tsv"}:
+        from evidencemill.ingest.csv import parse_csv
+        kwargs = {"delimiter": "\t"} if suffix == ".tsv" else {}
+        return parse_csv(p, source_id=source, **kwargs)
+    if suffix == ".pdf":
+        from evidencemill.ingest.pdf import parse_pdf
+        return parse_pdf(p, source_id=source, ocr_scanned=ocr)
+    if suffix in {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp"}:
+        from evidencemill.ingest.image import parse_image
+        return parse_image(p, source_id=source)
+    raise ValueError(f"unsupported input type: {suffix or '<none>'}")
