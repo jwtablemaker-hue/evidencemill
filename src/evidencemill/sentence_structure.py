@@ -263,7 +263,13 @@ def analyze_statement(text: str) -> StatementStructure:
                 and _same_clause(text, tokens[index], tokens[item.token_index])
             ]
             if local_components:
-                nearest = min(local_components, key=lambda item: abs(item.token_index - index))
+                nearest = min(
+                    local_components,
+                    key=lambda item: (
+                        abs(item.token_index - index),
+                        0 if item.token_index > index else 1,
+                    ),
+                )
 
         scope = "unknown"
         multiplicity = nearest.multiplicity if nearest else None
