@@ -54,7 +54,10 @@ def _text_observations(document: Document, block: TextBlock) -> list[EvidenceObs
                 property_hint=cell.property_hint,
                 qualifiers=measurement.qualifiers,
                 context={"scope": measurement.scope, "placement": measurement.placement, "multiplicity": measurement.multiplicity, "value_kind": measurement.value_kind, "tolerance": measurement.tolerance, "statement": sentence, "heading_path": list(block.heading_path)},
-                ambiguous=measurement.scope == "unknown",
+                ambiguous=(
+                    measurement.scope == "unknown"
+                    and not cell.property_hint
+                ),
             ))
     return out
 
