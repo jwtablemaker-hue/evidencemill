@@ -47,7 +47,7 @@ def _text_observations(document: Document, block: TextBlock) -> list[EvidenceObs
         for measurement_index, measurement in enumerate(structure.measurements, start=1):
             out.append(EvidenceObservation(
                 kind="measurement",
-                source=SourceRef(document.source_id, _location(block, f"s{index}:m{measurement_index}"), measurement.text),
+                source=SourceRef(document.source_id, _location(block, f"s{index}:m{measurement_index}"), sentence),
                 value=measurement.value,
                 unit=measurement.unit,
                 subject_hint=measurement.component_kind,
@@ -95,7 +95,7 @@ def _table_observations(document: Document, block: TableBlock) -> list[EvidenceO
                 source=SourceRef(
                     document.source_id,
                     f"{cell.source.location}:m{measurement_index}",
-                    measurement.text,
+                    statement,
                 ),
                 value=measurement.value,
                 unit=measurement.unit,
