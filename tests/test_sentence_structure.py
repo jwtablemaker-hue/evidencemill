@@ -133,5 +133,24 @@ class SentenceStructureTests(unittest.TestCase):
 
 
 
+    def test_ordinary_property_label_is_not_local_label(self):
+        result = analyze_statement("Max gradient: 16%")
+        self.assertEqual(len(result.measurements), 1)
+        self.assertIsNone(result.measurements[0].local_label)
+
+        motor = analyze_statement("Motor: 350W")
+        self.assertIsNone(motor.measurements[0].local_label)
+
+    def test_nested_and_delimited_labels_still_work(self):
+        result = analyze_statement(
+            "Speed: L1: <= 6km/h | L2: <= 20km/h"
+        )
+        self.assertEqual(
+            [item.local_label for item in result.measurements],
+            ["L1", "L2"],
+        )
+
+
+
 if __name__ == "__main__":
     unittest.main()
