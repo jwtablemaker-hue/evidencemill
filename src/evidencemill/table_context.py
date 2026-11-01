@@ -96,7 +96,7 @@ def parse_table(
     rows: Sequence[Sequence[object]],
     *,
     source_id: str,
-    header_rows: int | None = 1,
+    header_rows: int | None = None,
     row_header_columns: int = 1,
     location: str | None = None,
     layout: str = "auto",
