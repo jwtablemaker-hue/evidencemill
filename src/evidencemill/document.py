@@ -32,8 +32,10 @@ class TableBlock:
     page: int | None = None
     bbox: BBox | None = None
     heading_path: tuple[str, ...] = ()
-    header_rows: int = 1
+    header_rows: int | None = 1
     row_header_columns: int = 1
+    layout: str = "auto"
+    subject_hint: str | None = None
 
 
 @dataclass(frozen=True)
