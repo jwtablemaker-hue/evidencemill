@@ -36,6 +36,14 @@ class KeyValueTableTests(unittest.TestCase):
         )
         self.assertEqual(infer_table_layout(rows), ("matrix", 1))
 
+    def test_model_property_row_is_not_mistaken_for_header(self):
+        rows = (
+            ("Model", "X8 Pro"),
+            ("Max speed", "25 km/h"),
+            ("Battery", "36 V 10 Ah"),
+        )
+        self.assertEqual(infer_table_layout(rows), ("key_value", 0))
+
     def test_table_rows_emit_component_measurements(self):
         doc = Document(
             source_id="manual",
