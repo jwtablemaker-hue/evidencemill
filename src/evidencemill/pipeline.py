@@ -47,21 +47,13 @@ def _text_observations(document: Document, block: TextBlock) -> list[EvidenceObs
         for measurement_index, measurement in enumerate(structure.measurements, start=1):
             out.append(EvidenceObservation(
                 kind="measurement",
-                source=SourceRef(
-                    document.source_id,
-                    _location(block, f"s{index}:m{measurement_index}"),
-                    sentence,
-                ),
+                source=SourceRef(document.source_id, _location(block, f"s{index}:m{measurement_index}"), sentence),
                 value=measurement.value,
                 unit=measurement.unit,
-                subject_hint=measurement.component_kind or cell.subject_hint,
-                property_hint=cell.property_hint,
+                subject_hint=measurement.component_kind,
                 qualifiers=measurement.qualifiers,
-                context={"scope": measurement.scope, "placement": measurement.placement, "multiplicity": measurement.multiplicity, "value_kind": measurement.value_kind, "tolerance": measurement.tolerance, "comparison": measurement.comparison, "local_label": measurement.local_label, "measurement_text": measurement.text, "statement": sentence, "heading_path": list(block.heading_path)},
-                ambiguous=(
-                    measurement.scope == "unknown"
-                    and not cell.property_hint
-                ),
+                context={"scope": measurement.scope, "placement": measurement.placement, "multiplicity": measurement.multiplicity, "value_kind": measurement.value_kind, "tolerance": measurement.tolerance, "statement": sentence, "heading_path": list(block.heading_path)},
+                ambiguous=measurement.scope == "unknown",
             ))
     return out
 
@@ -103,7 +95,7 @@ def _table_observations(document: Document, block: TableBlock) -> list[EvidenceO
                 source=SourceRef(
                     document.source_id,
                     f"{cell.source.location}:m{measurement_index}",
-                    cell.source.raw_text or statement,
+                    statement,
                 ),
                 value=measurement.value,
                 unit=measurement.unit,
@@ -115,9 +107,6 @@ def _table_observations(document: Document, block: TableBlock) -> list[EvidenceO
                     "multiplicity": measurement.multiplicity,
                     "value_kind": measurement.value_kind,
                     "tolerance": measurement.tolerance,
-                    "comparison": measurement.comparison,
-                    "local_label": measurement.local_label,
-                    "measurement_text": measurement.text,
                     "statement": statement,
                     "heading_path": list(block.heading_path),
                     "table_property": cell.property_hint,
