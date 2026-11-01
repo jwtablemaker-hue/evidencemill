@@ -25,7 +25,9 @@ Current deterministic paths:
       -> prose / table / figure extraction
       -> cross-reference resolution
       -> structured EvidenceObservation records
-      -> optional SQL or domain adapter
+      -> FactPrepWorker
+      -> READY fact candidates / REVIEW residue
+      -> SQLite staging or optional domain adapter
       -> unresolved semantics only
       -> downstream system
 
@@ -63,6 +65,29 @@ The output is JSON containing document metadata and structured observations.
 - The extraction core stays domain-neutral.
 - Downstream schemas belong in adapters or external mapping files.
 
+## Fact-prep worker
+
+The fact-prep worker converts structural observations into stable, evidence-backed
+fact candidates without pretending to know a downstream domain.
+
+Candidates are marked:
+
+- `READY` when subject, predicate, value, unit and structural scope are explicit enough for staging.
+- `REVIEW` when applicability, rating basis, subject identity or another semantic detail remains unresolved.
+
+The worker preserves the source locator and text on every candidate and uses stable
+candidate IDs, so repeated parsing updates the same staging row instead of multiplying
+duplicates.
+
+Examples:
+
+    evidencemill manual.html --facts --pretty
+    evidencemill specs.csv --facts --sqlite-staging facts.sqlite
+    evidencemill manual.md notes.html specs.csv --benchmark 20
+
+SQLite staging is deliberately pre-canonical. A downstream system can map or reconcile
+`READY` candidates into its own schema while review workers see only the unresolved residue.
+
 ## SQL integration
 
 The SQL adapter maps target columns to neutral observation paths such as value, unit, source.source_id, source.location, source.raw_text, subject_hint, property_hint, qualifiers, context, and ambiguous.
@@ -73,7 +98,7 @@ See docs/sql-adapter.md.
 
 ## Status
 
-EvidenceMill is an early functional extraction engine. Text, HTML, CSV/table context, cross-reference resolution, and diagram callout geometry are implemented and tested. PDF, OCR, and computer-vision paths are optional integrations and depend on their external libraries.
+EvidenceMill is an early functional extraction engine. Text, HTML, CSV/table context, cross-reference resolution, diagram callout geometry, fact preparation, benchmarking, and SQLite staging are implemented. PDF, OCR, and computer-vision paths are optional integrations and depend on their external libraries.
 
 ## Support
 
