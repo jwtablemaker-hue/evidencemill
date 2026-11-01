@@ -152,5 +152,12 @@ class SentenceStructureTests(unittest.TestCase):
 
 
 
+    def test_sentence_boundary_stops_qualifier_leakage(self):
+        result = analyze_statement(
+            "Maximum speed is 20 km/h. Tire pressure is 2 bar."
+        )
+        pressure = [item for item in result.measurements if item.unit == "bar"][0]
+        self.assertNotIn("maximum", pressure.qualifiers)
+
 if __name__ == "__main__":
     unittest.main()
