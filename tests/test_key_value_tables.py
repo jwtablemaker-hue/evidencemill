@@ -102,6 +102,7 @@ class KeyValueTableTests(unittest.TestCase):
             ("General information", ""),
             ("Max speed", "25 km/h"),
             ("Low voltage protection", "31V +/- 0.5V"),
+            ("Range", "Up to 25 km"),
         )
         doc = Document(
             source_id="manual",
@@ -135,6 +136,15 @@ class KeyValueTableTests(unittest.TestCase):
             "tolerance_requires_semantic_handling",
             low_voltage.review_reasons,
         )
+
+        range_candidate = [
+            item for item in result.candidates
+            if item.observation_kind == "measurement"
+            and item.value == 25.0
+            and item.unit == "km"
+        ][0]
+        self.assertEqual(range_candidate.predicate_hint, "range")
+        self.assertIn("subject_unresolved", range_candidate.review_reasons)
 
 
 if __name__ == "__main__":
