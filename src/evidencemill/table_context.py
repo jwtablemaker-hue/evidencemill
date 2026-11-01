@@ -47,6 +47,14 @@ def split_header_unit(header: str) -> tuple[str, str | None]:
     return label, unit
 
 
+def _value_caveats(value: str) -> tuple[str, ...]:
+    return tuple(
+        match.strip()
+        for match in re.findall(r"\(([^()]*)\)", value)
+        if match.strip()
+    )
+
+
 def _normalize_rows(rows: Sequence[Sequence[object]]) -> list[list[str]]:
     width = max((len(row) for row in rows), default=0)
     return [
@@ -163,6 +171,7 @@ def parse_table(
                 inherited_unit=inherited_unit,
                 section_heading=section_heading,
                 table_layout="key_value",
+                notes=_value_caveats(value),
             )
             raw_text = f"{property_text}: {value}"
             out.append(EvidenceObservation(
@@ -184,6 +193,7 @@ def parse_table(
                     "section_heading": section_heading,
                     "table_subject": table_subject,
                     "table_layout": "key_value",
+                    "source_caveats": list(context.notes),
                 },
                 ambiguous=not bool(property_label),
             ))
@@ -221,6 +231,7 @@ def parse_table(
                 value=value,
                 inherited_unit=unit,
                 table_layout="matrix",
+                notes=_value_caveats(value),
             )
             out.append(EvidenceObservation(
                 kind="table_cell",
@@ -240,6 +251,7 @@ def parse_table(
                     "column_header": context.column_header,
                     "table_subject": table_subject,
                     "table_layout": "matrix",
+                    "source_caveats": list(context.notes),
                 },
                 ambiguous=not bool(row_header or column_header),
             ))
