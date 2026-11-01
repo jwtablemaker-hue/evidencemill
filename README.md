@@ -60,3 +60,8 @@ See docs/sql-adapter.md.
 ## Status
 
 Early extraction engine. It produces evidence observations, not autonomous facts.
+
+
+## Support
+
+If EvidenceMill is useful to you, sponsorship helps cover CI, hosted build, and project infrastructure costs.
