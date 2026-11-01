@@ -44,6 +44,14 @@ class SentenceStructureTests(unittest.TestCase):
         pressure = [item for item in result.measurements if item.unit == "bar"][0]
         self.assertNotIn("maximum", pressure.qualifiers)
 
+    def test_adjacent_component_temperatures_stay_attached(self):
+        result = analyze_statement(
+            "Reported 100 C controller / 88 C motor temperatures are contextual."
+        )
+        self.assertEqual(len(result.measurements), 2)
+        self.assertEqual(result.measurements[0].component_kind, "controller")
+        self.assertEqual(result.measurements[1].component_kind, "motor")
+
 
 if __name__ == "__main__":
     unittest.main()
