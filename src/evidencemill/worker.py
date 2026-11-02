@@ -174,7 +174,7 @@ def _meaningful_heading(context: dict[str, Any]) -> str | None:
     return None
 
 
-def _measurement_predicate(observation: EvidenceObservation) -> tuple[str | None, str | None]:
+def _measurement_predicate(observation: EvidenceObservation, resolved_subject: str | None = None) -> tuple[str | None, str | None]:
     quantity = _UNIT_QUANTITIES.get(observation.unit or "")
     if quantity is None:
         return None, "unit_has_no_generic_quantity"
@@ -183,7 +183,7 @@ def _measurement_predicate(observation: EvidenceObservation) -> tuple[str | None
         observation.property_hint
         or observation.context.get("table_property")
     )
-    subject_slug = _slug(observation.subject_hint)
+    subject_slug = _slug(resolved_subject or observation.subject_hint)
 
     if explicit_property and subject_slug:
         if explicit_property == subject_slug:
@@ -300,7 +300,6 @@ def _candidate_from_table(observation: EvidenceObservation) -> FactCandidate:
 
 
 def _candidate_from_measurement(observation: EvidenceObservation) -> FactCandidate:
-    predicate, predicate_reason = _measurement_predicate(observation)
     scope = observation.context.get("scope")
     heading_hint = _meaningful_heading(observation.context)
     subject = observation.subject_hint
@@ -326,6 +325,7 @@ def _candidate_from_measurement(observation: EvidenceObservation) -> FactCandida
     if subject is None and scope == "system":
         subject = "system"
 
+    predicate, predicate_reason = _measurement_predicate(observation, subject)
     confidence = 0.94
     reasons: list[str] = []
     if predicate_reason:
