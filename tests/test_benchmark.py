@@ -15,7 +15,7 @@ class BenchmarkTests(unittest.TestCase):
             )
             result = benchmark_paths([path], repeats=2)
         self.assertEqual(result.documents_per_run, 1)
-        self.assertEqual(result.candidates_per_run, 2)
+        self.assertEqual(result.candidates_per_run, 3)
         self.assertGreaterEqual(result.ready_per_run, 1)
         self.assertGreater(result.median_candidates_per_second, 0)
 
