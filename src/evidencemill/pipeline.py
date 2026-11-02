@@ -54,13 +54,12 @@ def _text_observations(document: Document, block: TextBlock) -> list[EvidenceObs
                 ),
                 value=measurement.value,
                 unit=measurement.unit,
-                subject_hint=measurement.component_kind or cell.subject_hint,
-                property_hint=cell.property_hint,
+                subject_hint=measurement.component_kind,
+                property_hint=measurement.local_label,
                 qualifiers=measurement.qualifiers,
                 context={"scope": measurement.scope, "placement": measurement.placement, "multiplicity": measurement.multiplicity, "value_kind": measurement.value_kind, "tolerance": measurement.tolerance, "comparison": measurement.comparison, "local_label": measurement.local_label, "measurement_text": measurement.text, "statement": sentence, "heading_path": list(block.heading_path)},
                 ambiguous=(
                     measurement.scope == "unknown"
-                    and not cell.property_hint
                 ),
             ))
     return out
