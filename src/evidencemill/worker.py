@@ -174,7 +174,7 @@ def _meaningful_heading(context: dict[str, Any]) -> str | None:
     return None
 
 
-def _measurement_predicate(observation: EvidenceObservation) -> tuple[str | None, str | None]:
+def _measurement_predicate(observation: EvidenceObservation, resolved_subject: str | None = None) -> tuple[str | None, str | None]:
     quantity = _UNIT_QUANTITIES.get(observation.unit or "")
     if quantity is None:
         return None, "unit_has_no_generic_quantity"
@@ -183,7 +183,7 @@ def _measurement_predicate(observation: EvidenceObservation) -> tuple[str | None
         observation.property_hint
         or observation.context.get("table_property")
     )
-    subject_slug = _slug(observation.subject_hint)
+    subject_slug = _slug(resolved_subject or observation.subject_hint)
 
     if explicit_property and subject_slug:
         if explicit_property == subject_slug:
@@ -299,8 +299,38 @@ def _candidate_from_table(observation: EvidenceObservation) -> FactCandidate:
     )
 
 
+def _statement_conditions(observation: EvidenceObservation) -> dict[str, Any]:
+    """Retain exact clause text for interpretation; do not infer its semantics."""
+    text = observation.context.get("statement") or observation.source.raw_text or ""
+    markers = re.search(
+        r"\b(?:if|when|unless|except|after|before|while|under|according to|"
+        r"depending on|only|not|never|without)\b", text, re.I,
+    )
+    return {"source_clause": text[markers.start():]} if markers else {}
+
+
+def _candidate_from_statement(observation: EvidenceObservation) -> FactCandidate:
+    # Statements remain explicit review items, including those with measurements:
+    # successful scalar extraction does not account for all sentence meaning.
+    reason = "statement_semantic_interpretation_required"
+    return FactCandidate(
+        candidate_id=_stable_id(observation.source, observation.kind, None, None,
+                                observation.value, None),
+        source=observation.source,
+        observation_kind=observation.kind,
+        subject_hint=observation.subject_hint,
+        predicate_hint=None,
+        value=observation.value,
+        qualifiers=tuple(observation.qualifiers),
+        conditions=_statement_conditions(observation),
+        context=dict(observation.context),
+        readiness=REVIEW,
+        review_reason=reason,
+        review_reasons=(reason,),
+    )
+
+
 def _candidate_from_measurement(observation: EvidenceObservation) -> FactCandidate:
-    predicate, predicate_reason = _measurement_predicate(observation)
     scope = observation.context.get("scope")
     heading_hint = _meaningful_heading(observation.context)
     subject = observation.subject_hint
@@ -326,8 +356,12 @@ def _candidate_from_measurement(observation: EvidenceObservation) -> FactCandida
     if subject is None and scope == "system":
         subject = "system"
 
+    predicate, predicate_reason = _measurement_predicate(observation, subject)
     confidence = 0.94
     reasons: list[str] = []
+    statement_conditions = _statement_conditions(observation)
+    if statement_conditions:
+        reasons.append("statement_modifier_requires_interpretation")
     if predicate_reason:
         reasons.append(predicate_reason)
 
@@ -380,6 +414,7 @@ def _candidate_from_measurement(observation: EvidenceObservation) -> FactCandida
         unit=observation.unit,
         qualifiers=tuple(observation.qualifiers),
         conditions={
+            **statement_conditions,
             "scope": scope,
             "placement": observation.context.get("placement"),
             "multiplicity": observation.context.get("multiplicity"),
@@ -423,6 +458,8 @@ def _candidate_from_figure_callout(observation: EvidenceObservation) -> FactCand
 
 
 def observation_to_candidate(observation: EvidenceObservation) -> FactCandidate | None:
+    if observation.kind == "statement":
+        return _candidate_from_statement(observation)
     if observation.kind == "table_cell":
         return _candidate_from_table(observation)
     if observation.kind == "measurement":
