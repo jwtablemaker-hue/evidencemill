@@ -107,7 +107,7 @@ def _table_observations(document: Document, block: TableBlock) -> list[EvidenceO
                 ),
                 value=measurement.value,
                 unit=measurement.unit,
-                subject_hint=measurement.component_kind,
+                subject_hint=measurement.component_kind or cell.subject_hint,
                 qualifiers=measurement.qualifiers,
                 context={
                     "scope": measurement.scope,
@@ -125,8 +125,9 @@ def _table_observations(document: Document, block: TableBlock) -> list[EvidenceO
                     "table_section": context.get("section_heading"),
                     "table_layout": context.get("table_layout"),
                     "table_cell_location": cell.source.location,
+                    "source_caveats": context.get("source_caveats", []),
                 },
-                ambiguous=measurement.scope == "unknown",
+                ambiguous=(measurement.scope == "unknown" and not cell.property_hint),
             ))
     return out
 
