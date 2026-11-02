@@ -57,7 +57,7 @@ def _text_observations(document: Document, block: TextBlock) -> list[EvidenceObs
                 subject_hint=measurement.component_kind,
                 property_hint=measurement.local_label,
                 qualifiers=measurement.qualifiers,
-                context={"scope": measurement.scope, "placement": measurement.placement, "multiplicity": measurement.multiplicity, "value_kind": measurement.value_kind, "tolerance": measurement.tolerance, "comparison": measurement.comparison, "local_label": measurement.local_label, "measurement_text": measurement.text, "statement": sentence, "heading_path": list(block.heading_path)},
+                context={"scope": measurement.scope, "placement": measurement.placement, "multiplicity": measurement.multiplicity, "value_kind": measurement.value_kind, "tolerance": measurement.tolerance, "comparison": measurement.comparison, "local_label": measurement.local_label, "measurement_text": measurement.text, "statement": sentence, "statement_structure": structure.to_dict(), "heading_path": list(block.heading_path)},
                 ambiguous=(
                     measurement.scope == "unknown"
                 ),
@@ -118,6 +118,7 @@ def _table_observations(document: Document, block: TableBlock) -> list[EvidenceO
                     "local_label": measurement.local_label,
                     "measurement_text": measurement.text,
                     "statement": statement,
+                    "statement_structure": structure.to_dict(),
                     "heading_path": list(block.heading_path),
                     "table_property": cell.property_hint,
                     "table_subject": cell.subject_hint,
