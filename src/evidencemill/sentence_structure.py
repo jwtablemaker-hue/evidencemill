@@ -287,7 +287,7 @@ def analyze_statement(text: str) -> StatementStructure:
             index,
             {
                 "combined", "total", "system", "peak", "maximum", "max",
-                "rated", "continuous", "nominal", "each", "per",
+                "rated", "continuous", "nominal", "minimum", "min", "each", "per",
             },
             text,
             4,
@@ -296,6 +296,8 @@ def analyze_statement(text: str) -> StatementStructure:
         for word in qualifier_words:
             if word in {"maximum", "max"}:
                 qualifiers.add("maximum")
+            elif word in {"minimum", "min"}:
+                qualifiers.add("minimum")
             elif word == "continuous":
                 qualifiers.add("rated")
             else:
@@ -339,6 +341,19 @@ def analyze_statement(text: str) -> StatementStructure:
                         0 if item.token_index > index else 1,
                     ),
                 )
+
+        # Coordinated quantities can share the immediately preceding component.
+        # Require one explicit component in this clause and an "and" connector;
+        # never use a heading alone or cross a clause boundary.
+        if nearest is None and measurements and not ({"combined", "total", "system"} & qualifier_words):
+            previous = measurements[-1]
+            clause_components = [item for item in components
+                                 if _same_clause(text, tokens[index], tokens[item.token_index])]
+            between = words[previous.token_index + 2:index]
+            if (previous.component_kind and len(clause_components) == 1
+                    and clause_components[0].kind == previous.component_kind
+                    and between == ["and"]):
+                nearest = clause_components[0]
 
         scope = "unknown"
         multiplicity = nearest.multiplicity if nearest else None
