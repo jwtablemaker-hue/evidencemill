@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 
 from evidencemill.document import Document, FigureBlock, TableBlock, TextBlock
 
@@ -51,7 +52,12 @@ def parse_pdf(path: str | Path, *, source_id: str | None = None, ocr_scanned: bo
                 detected_tables.append((rows, _bbox(getattr(table, "bbox", None))))
 
         raw_blocks = page.get_text("blocks", sort=True)
-        if not raw_blocks and not detected_tables and ocr_scanned:
+        native_count = len("".join("".join(str(item[4]).split()) for item in raw_blocks))
+        meaningful_tables = any(
+            str(cell).strip() for rows, _ in detected_tables
+            for row in rows for cell in row if cell is not None
+        )
+        if native_count <= 32 and not meaningful_tables and ocr_scanned:
             try:
                 from PIL import Image
                 import pytesseract
@@ -60,7 +66,10 @@ def parse_pdf(path: str | Path, *, source_id: str | None = None, ocr_scanned: bo
             pix = page.get_pixmap(matrix=fitz.Matrix(2, 2), alpha=False)
             image = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
             ocr_text = " ".join(pytesseract.image_to_string(image).split()).strip()
-            if ocr_text:
+            ocr_count = len("".join(ocr_text.split()))
+            # Keep the existing textless-page fallback, even for a short OCR result.
+            richer = ocr_count >= native_count + 32 and ocr_count >= 2 * native_count
+            if ocr_text and (native_count == 0 or richer):
                 counter += 1
                 blocks.append(TextBlock(
                     text=ocr_text,
@@ -69,6 +78,21 @@ def parse_pdf(path: str | Path, *, source_id: str | None = None, ocr_scanned: bo
                     page=page_no,
                     bbox=(0.0, 0.0, float(page.rect.width), float(page.rect.height)),
                 ))
+                # OCR is primary. Retain native lines absent from it, without
+                # emitting a second copy of lines OCR already reproduced.
+                remaining = []
+                for item in raw_blocks:
+                    missing = []
+                    for line in str(item[4]).splitlines():
+                        line = " ".join(line.split())
+                        if line and not re.search(
+                            r"(?<!\w)" + re.escape(line) + r"(?!\w)",
+                            ocr_text, flags=re.IGNORECASE,
+                        ):
+                            missing.append(line)
+                    if missing:
+                        remaining.append((*item[:4], "\n".join(missing), *item[5:]))
+                raw_blocks = remaining
 
         table_bboxes = [bbox for _, bbox in detected_tables if bbox is not None]
         for item in raw_blocks:
