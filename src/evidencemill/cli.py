@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import asdict
+from contextlib import redirect_stdout
 import json
 import sqlite3
 import sys
@@ -43,7 +44,8 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--source-id is valid only with one input")
 
     if args.benchmark:
-        result = benchmark_paths(args.inputs, repeats=args.benchmark, ocr=args.ocr)
+        with redirect_stdout(sys.stderr):
+            result = benchmark_paths(args.inputs, repeats=args.benchmark, ocr=args.ocr)
         _emit({"benchmark": result.to_dict()}, pretty=args.pretty)
         return 0
 
@@ -55,8 +57,10 @@ def main(argv: list[str] | None = None) -> int:
     try:
         for index, path in enumerate(args.inputs):
             source_id = args.source_id if index == 0 else None
-            document = ingest_path(path, source_id=source_id, ocr=args.ocr)
-            observations = process_document(document)
+            # Library notices must never contaminate the machine-readable output.
+            with redirect_stdout(sys.stderr):
+                document = ingest_path(path, source_id=source_id, ocr=args.ocr)
+                observations = process_document(document)
             payload = {
                 "document": {
                     "source_id": document.source_id,

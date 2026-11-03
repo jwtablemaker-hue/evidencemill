@@ -4,11 +4,23 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
+from evidencemill.ingest.text import parse_text
 
 from evidencemill.cli import main
 
 
 class CliFactsOnlyTests(unittest.TestCase):
+    def test_library_notice_does_not_corrupt_json(self):
+        def noisy(*args, **kwargs):
+            print("PDF library notice")
+            return parse_text("Rated motor power is 500 W.", source_id="fixture")
+        output, errors = io.StringIO(), io.StringIO()
+        with patch("evidencemill.cli.ingest_path", noisy), contextlib.redirect_stdout(output), contextlib.redirect_stderr(errors):
+            self.assertEqual(main(["fixture.pdf", "--facts-only"]), 0)
+        self.assertIn("fact_candidates", json.loads(output.getvalue()))
+        self.assertIn("PDF library notice", errors.getvalue())
+
     def test_facts_only_omits_observation_payload(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "sample.md"

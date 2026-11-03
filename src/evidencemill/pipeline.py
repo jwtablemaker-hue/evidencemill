@@ -54,13 +54,12 @@ def _text_observations(document: Document, block: TextBlock) -> list[EvidenceObs
                 ),
                 value=measurement.value,
                 unit=measurement.unit,
-                subject_hint=measurement.component_kind or cell.subject_hint,
-                property_hint=cell.property_hint,
+                subject_hint=measurement.component_kind,
+                property_hint=measurement.local_label,
                 qualifiers=measurement.qualifiers,
-                context={"scope": measurement.scope, "placement": measurement.placement, "multiplicity": measurement.multiplicity, "value_kind": measurement.value_kind, "tolerance": measurement.tolerance, "comparison": measurement.comparison, "local_label": measurement.local_label, "measurement_text": measurement.text, "statement": sentence, "heading_path": list(block.heading_path)},
+                context={"scope": measurement.scope, "placement": measurement.placement, "multiplicity": measurement.multiplicity, "value_kind": measurement.value_kind, "tolerance": measurement.tolerance, "comparison": measurement.comparison, "local_label": measurement.local_label, "measurement_text": measurement.text, "statement": sentence, "statement_structure": structure.to_dict(), "heading_path": list(block.heading_path)},
                 ambiguous=(
                     measurement.scope == "unknown"
-                    and not cell.property_hint
                 ),
             ))
     return out
@@ -107,7 +106,7 @@ def _table_observations(document: Document, block: TableBlock) -> list[EvidenceO
                 ),
                 value=measurement.value,
                 unit=measurement.unit,
-                subject_hint=measurement.component_kind,
+                subject_hint=measurement.component_kind or cell.subject_hint,
                 qualifiers=measurement.qualifiers,
                 context={
                     "scope": measurement.scope,
@@ -119,14 +118,16 @@ def _table_observations(document: Document, block: TableBlock) -> list[EvidenceO
                     "local_label": measurement.local_label,
                     "measurement_text": measurement.text,
                     "statement": statement,
+                    "statement_structure": structure.to_dict(),
                     "heading_path": list(block.heading_path),
                     "table_property": cell.property_hint,
                     "table_subject": cell.subject_hint,
                     "table_section": context.get("section_heading"),
                     "table_layout": context.get("table_layout"),
                     "table_cell_location": cell.source.location,
+                    "source_caveats": context.get("source_caveats", []),
                 },
-                ambiguous=measurement.scope == "unknown",
+                ambiguous=(measurement.scope == "unknown" and not cell.property_hint),
             ))
     return out
 
