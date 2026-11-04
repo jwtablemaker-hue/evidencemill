@@ -10,7 +10,7 @@ except ImportError:
     fitz = None
 
 from evidencemill.document import TextBlock
-from evidencemill.ingest.pdf import parse_pdf
+from evidencemill.ingest.pdf import parse_pdf, _ocr_regions
 from evidencemill.worker import FactPrepWorker
 
 
@@ -87,6 +87,63 @@ class PdfOcrTests(unittest.TestCase):
         document, calls = self.parse("ES1", OCR, tables=SimpleNamespace(tables=[table]))
         self.assertEqual(calls, 0)
         self.assertEqual(self.text(document), "ES1")
+
+    def parse_landscape(self, gutter):
+        from PIL import Image, ImageDraw
+        from io import BytesIO
+        image = Image.new("RGB", (800, 400), "white")
+        draw = ImageDraw.Draw(image)
+        # Raster content ensures native extraction remains only the ES1 label.
+        for y in range(50, 350, 20):
+            if gutter:
+                draw.rectangle((50, y, 350, y + 4), fill="black")
+                draw.rectangle((450, y, 750, y + 4), fill="black")
+            else:
+                draw.rectangle((50, y, 750, y + 4), fill="black")
+        stream = BytesIO()
+        image.save(stream, format="PNG")
+        seen = []
+
+        def read(region):
+            seen.append(region.size)
+            return ("The complete left answer ends with 110 pounds [50 kg]." if len(seen) == 1
+                    else "E-mail Service: support@hiboy.com. ES1")
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "landscape.pdf"
+            with fitz.open() as pdf:
+                page = pdf.new_page(width=800, height=400)
+                page.insert_image(page.rect, stream=stream.getvalue())
+                page.insert_text((20, 20), "ES1")
+                pdf.save(path)
+            with patch("pytesseract.image_to_string", side_effect=read):
+                document = parse_pdf(path, ocr_scanned=True)
+        return document, seen
+
+    def test_gutter_preserves_separate_left_right_blocks_at_4x(self):
+        document, seen = self.parse_landscape(gutter=True)
+        blocks = [b for b in document.blocks if isinstance(b, TextBlock)]
+        self.assertEqual(seen, [(1600, 1600), (1600, 1600)])
+        self.assertEqual(len(blocks), 2)
+        self.assertIn("110 pounds [50 kg]", blocks[0].text)
+        self.assertNotIn("E-mail", blocks[0].text)
+        self.assertTrue(blocks[1].text.startswith("E-mail"))
+        self.assertEqual([b.bbox for b in blocks], [(0, 0, 400, 400), (400, 0, 800, 400)])
+        self.assertEqual(self.text(document).count("ES1"), 1)
+
+    def test_landscape_without_gutter_uses_one_4x_region(self):
+        document, seen = self.parse_landscape(gutter=False)
+        self.assertEqual(seen, [(3200, 1600)])
+        blocks = [b for b in document.blocks if isinstance(b, TextBlock)]
+        self.assertEqual(sum(b.kind == "ocr_paragraph" for b in blocks), 1)
+        self.assertEqual(self.text(document).count("ES1"), 1)
+
+    def test_blank_landscape_and_one_sided_content_are_not_gutters(self):
+        from PIL import Image, ImageDraw
+        image = Image.new("RGB", (800, 400), "white")
+        self.assertEqual(_ocr_regions(image), [(0, 0, 800, 400)])
+        ImageDraw.Draw(image).rectangle((50, 50, 350, 350), fill="black")
+        self.assertEqual(_ocr_regions(image), [(0, 0, 800, 400)])
 
 
 if __name__ == "__main__":
