@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import re
+from statistics import median
 
 from evidencemill.document import Document, FigureBlock, TableBlock, TextBlock
 
@@ -45,6 +46,108 @@ def _normalize_text_preserving_paragraphs(value: str) -> str:
         else:
             paragraphs.append(paragraph)
     return "\n\n".join(paragraphs)
+
+
+def _ocr_text_with_layout(image, pytesseract) -> str:
+    """Reconstruct OCR text while preserving defensible visual boundaries.
+
+    Tesseract can flatten two nearby labels into one text line. For a one-line
+    OCR block only, an unusually large horizontal word gap is retained as a
+    paragraph boundary. Multi-line blocks are left intact so ordinary wrapping
+    and columnar text are not over-segmented.
+    """
+    data = pytesseract.image_to_data(
+        image,
+        output_type=pytesseract.Output.DICT,
+    )
+    rows = []
+    for index, raw in enumerate(data.get("text", ())):
+        text = str(raw).strip()
+        if not text:
+            continue
+        rows.append({
+            "text": text,
+            "left": int(data["left"][index]),
+            "top": int(data["top"][index]),
+            "width": int(data["width"][index]),
+            "height": int(data["height"][index]),
+            "block": int(data["block_num"][index]),
+            "par": int(data["par_num"][index]),
+            "line": int(data["line_num"][index]),
+        })
+    if not rows:
+        return ""
+
+    by_key = {}
+    order = []
+    for row in rows:
+        key = (row["block"], row["par"], row["line"])
+        if key not in by_key:
+            by_key[key] = []
+            order.append(key)
+        by_key[key].append(row)
+
+    lines = [
+        (key, sorted(by_key[key], key=lambda item: item["left"]))
+        for key in order
+    ]
+    block_line_counts = {}
+    for key, _ in lines:
+        block_line_counts[key[0]] = block_line_counts.get(key[0], 0) + 1
+
+    rendered = []
+    for key, words in lines:
+        split_at = set()
+        if block_line_counts.get(key[0]) == 1 and len(words) >= 4:
+            gaps = [
+                words[i + 1]["left"] - (words[i]["left"] + words[i]["width"])
+                for i in range(len(words) - 1)
+            ]
+            positive = [gap for gap in gaps if gap > 0]
+            heights = [word["height"] for word in words if word["height"] > 0]
+            if positive and heights:
+                typical_gap = median(positive)
+                typical_height = median(heights)
+                threshold = max(24.0, 3.0 * typical_gap, 1.25 * typical_height)
+                for i, gap in enumerate(gaps):
+                    left_count = i + 1
+                    right_count = len(words) - left_count
+                    if gap >= threshold and left_count >= 2 and right_count >= 2:
+                        split_at.add(i)
+
+        segments = []
+        current = []
+        for i, word in enumerate(words):
+            current.append(word["text"])
+            if i in split_at:
+                segments.append(" ".join(current))
+                current = []
+        if current:
+            segments.append(" ".join(current))
+        rendered.append((key[0], key[1], segments))
+
+    paragraphs = []
+    active_key = None
+    active_lines = []
+    for block, par, segments in rendered:
+        key = (block, par)
+        if key != active_key:
+            if active_lines:
+                paragraphs.append(" ".join(active_lines))
+            active_key = key
+            active_lines = []
+        if len(segments) > 1:
+            if active_lines:
+                paragraphs.append(" ".join(active_lines))
+                active_lines = []
+            paragraphs.extend(segment for segment in segments if segment)
+            active_key = None
+        elif segments:
+            active_lines.append(segments[0])
+    if active_lines:
+        paragraphs.append(" ".join(active_lines))
+
+    return _normalize_text_preserving_paragraphs("\n\n".join(paragraphs))
 
 
 def _bbox(value):
@@ -137,9 +240,7 @@ def parse_pdf(path: str | Path, *, source_id: str | None = None, ocr_scanned: bo
             region_texts = [
                 (
                     region,
-                    _normalize_text_preserving_paragraphs(
-                        pytesseract.image_to_string(image.crop(region))
-                    ),
+                    _ocr_text_with_layout(image.crop(region), pytesseract),
                 )
                 for region in _ocr_regions(image)
             ]
