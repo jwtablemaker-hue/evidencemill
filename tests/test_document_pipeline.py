@@ -1,7 +1,7 @@
 import unittest
 
 from evidencemill.ingest.text import parse_text
-from evidencemill.pipeline import process_document
+from evidencemill.pipeline import process_document, split_sentences
 
 
 class DocumentPipelineTests(unittest.TestCase):
@@ -18,6 +18,22 @@ class DocumentPipelineTests(unittest.TestCase):
         self.assertEqual(measurements[0].context["scope"], "each")
         self.assertEqual(measurements[1].value, 2400.0)
         self.assertEqual(measurements[1].context["scope"], "system")
+
+    def test_paragraph_boundaries_are_hard_sentence_boundaries(self):
+        self.assertEqual(
+            split_sentences(
+                "Open the cover\n\n"
+                "Do not connect the charger if the port is wet. "
+                "Cover the port when not in use.\n\n"
+                "A wrapped\nline stays together."
+            ),
+            (
+                "Open the cover",
+                "Do not connect the charger if the port is wet.",
+                "Cover the port when not in use.",
+                "A wrapped line stays together.",
+            ),
+        )
 
 
 if __name__ == "__main__":

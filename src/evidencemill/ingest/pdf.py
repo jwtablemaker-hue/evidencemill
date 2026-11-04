@@ -6,6 +6,47 @@ import re
 from evidencemill.document import Document, FigureBlock, TableBlock, TextBlock
 
 
+_CONTINUATION_WORDS = frozenset({
+    "a", "an", "and", "as", "at", "be", "by", "for", "from", "in", "is",
+    "of", "on", "or", "the", "to", "was", "were", "with",
+})
+
+
+def _looks_like_continuation(previous: str, following: str) -> bool:
+    """Reject OCR blank lines that split an obviously unfinished sentence."""
+    if not previous or not following:
+        return False
+    if previous.rstrip().endswith((".", "!", "?", ";", ":")):
+        return False
+    first = following.lstrip()[:1]
+    if first and first.islower():
+        return True
+    tail = re.findall(r"[A-Za-z]+", previous.casefold())
+    return bool(tail and tail[-1] in _CONTINUATION_WORDS)
+
+
+def _normalize_text_preserving_paragraphs(value: str) -> str:
+    """Collapse wrapped lines while retaining defensible paragraph boundaries."""
+    text = str(value).replace("\r\n", "\n").replace("\r", "\n")
+    raw_paragraphs = []
+    for paragraph in re.split(r"\n\s*\n+", text):
+        joined = " ".join(
+            " ".join(line.split())
+            for line in paragraph.splitlines()
+            if line.strip()
+        ).strip()
+        if joined:
+            raw_paragraphs.append(joined)
+
+    paragraphs: list[str] = []
+    for paragraph in raw_paragraphs:
+        if paragraphs and _looks_like_continuation(paragraphs[-1], paragraph):
+            paragraphs[-1] = f"{paragraphs[-1]} {paragraph}"
+        else:
+            paragraphs.append(paragraph)
+    return "\n\n".join(paragraphs)
+
+
 def _bbox(value):
     return tuple(float(x) for x in value) if value is not None else None
 
@@ -94,7 +135,12 @@ def parse_pdf(path: str | Path, *, source_id: str | None = None, ocr_scanned: bo
             pix = page.get_pixmap(matrix=fitz.Matrix(4, 4), alpha=False)
             image = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
             region_texts = [
-                (region, " ".join(pytesseract.image_to_string(image.crop(region)).split()).strip())
+                (
+                    region,
+                    _normalize_text_preserving_paragraphs(
+                        pytesseract.image_to_string(image.crop(region))
+                    ),
+                )
                 for region in _ocr_regions(image)
             ]
             ocr_count = sum(len("".join(text.split())) for _, text in region_texts)
@@ -139,7 +185,7 @@ def parse_pdf(path: str | Path, *, source_id: str | None = None, ocr_scanned: bo
             block_bbox = (float(x0), float(y0), float(x1), float(y1))
             if any(_center_inside(block_bbox, table_bbox) for table_bbox in table_bboxes):
                 continue
-            text = " ".join(str(text).split()).strip()
+            text = _normalize_text_preserving_paragraphs(str(text))
             if not text:
                 continue
             counter += 1
