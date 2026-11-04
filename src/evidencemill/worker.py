@@ -313,17 +313,32 @@ def _candidate_from_statement(observation: EvidenceObservation) -> FactCandidate
     # Statements remain explicit review items, including those with measurements:
     # successful scalar extraction does not account for all sentence meaning.
     reason = "statement_semantic_interpretation_required"
+    context = dict(observation.context)
+    structure = context.get("structure")
+    instructions = (
+        structure.get("recurring_service_instructions", [])
+        if isinstance(structure, dict)
+        else []
+    )
+    instruction = instructions[0] if len(instructions) == 1 else None
+    conditions = _statement_conditions(observation)
+    if isinstance(instruction, dict):
+        conditions["recurring_service_instruction"] = dict(instruction)
     return FactCandidate(
         candidate_id=_stable_id(observation.source, observation.kind, None, None,
                                 observation.value, None),
         source=observation.source,
         observation_kind=observation.kind,
-        subject_hint=observation.subject_hint,
+        subject_hint=(
+            instruction.get("target_component_kind")
+            if isinstance(instruction, dict)
+            else observation.subject_hint
+        ),
         predicate_hint=None,
         value=observation.value,
         qualifiers=tuple(observation.qualifiers),
-        conditions=_statement_conditions(observation),
-        context=dict(observation.context),
+        conditions=conditions,
+        context=context,
         readiness=REVIEW,
         review_reason=reason,
         review_reasons=(reason,),
@@ -360,6 +375,20 @@ def _candidate_from_measurement(observation: EvidenceObservation) -> FactCandida
     confidence = 0.94
     reasons: list[str] = []
     statement_conditions = _statement_conditions(observation)
+    statement_structure = observation.context.get("statement_structure")
+    recurring_instruction = None
+    if isinstance(statement_structure, dict):
+        for item in statement_structure.get("recurring_service_instructions", []):
+            if not isinstance(item, dict):
+                continue
+            if (
+                item.get("recurrence_value") == observation.value
+                and item.get("recurrence_unit") == observation.unit
+            ):
+                recurring_instruction = item
+                break
+    if recurring_instruction is not None:
+        reasons.append("recurring_service_instruction_requires_interpretation")
     if statement_conditions:
         reasons.append("statement_modifier_requires_interpretation")
     if predicate_reason:
@@ -415,6 +444,11 @@ def _candidate_from_measurement(observation: EvidenceObservation) -> FactCandida
         qualifiers=tuple(observation.qualifiers),
         conditions={
             **statement_conditions,
+            **(
+                {"recurring_service_instruction": dict(recurring_instruction)}
+                if recurring_instruction is not None
+                else {}
+            ),
             "scope": scope,
             "placement": observation.context.get("placement"),
             "multiplicity": observation.context.get("multiplicity"),
