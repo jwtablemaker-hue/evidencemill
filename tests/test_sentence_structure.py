@@ -159,5 +159,30 @@ class SentenceStructureTests(unittest.TestCase):
         pressure = [item for item in result.measurements if item.unit == "bar"][0]
         self.assertNotIn("maximum", pressure.qualifiers)
 
+    def test_recurring_recharge_retains_action_target_and_interval(self):
+        result = analyze_statement(
+            "Keep in mind to recharge it every 60 days to protect the battery from potential damage."
+        )
+        self.assertEqual(len(result.recurring_service_instructions), 1)
+        instruction = result.recurring_service_instructions[0]
+        self.assertEqual(instruction.action, "recharge")
+        self.assertEqual(instruction.action_text, "recharge it every 60 days")
+        self.assertEqual(instruction.target_component_kind, "battery")
+        self.assertEqual(instruction.recurrence_marker, "every")
+        self.assertEqual(instruction.recurrence_value, 60.0)
+        self.assertEqual(instruction.recurrence_unit, "day")
+
+    def test_charge_duration_is_not_a_recurring_instruction(self):
+        result = analyze_statement("Charge the battery for 60 minutes.")
+        self.assertEqual(result.recurring_service_instructions, ())
+
+    def test_recurrence_without_target_does_not_invent_component(self):
+        result = analyze_statement("Inspect every 60 days.")
+        self.assertEqual(len(result.recurring_service_instructions), 1)
+        instruction = result.recurring_service_instructions[0]
+        self.assertEqual(instruction.action, "inspect")
+        self.assertIsNone(instruction.target_component_kind)
+
+
 if __name__ == "__main__":
     unittest.main()
