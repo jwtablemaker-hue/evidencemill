@@ -309,11 +309,31 @@ def _statement_conditions(observation: EvidenceObservation) -> dict[str, Any]:
     return {"source_clause": text[markers.start():]} if markers else {}
 
 
+def _is_searchable_cleaning_guidance(observation: EvidenceObservation) -> bool:
+    """Conservatively bypass semantic review for nontechnical cleaning prose.
+
+    This is a routing decision, not a claim that the passage is fully parsed.
+    Numeric/technical mixed passages stay in REVIEW for fact extraction.
+    """
+    text = str(observation.context.get("statement") or observation.source.raw_text or "")
+    if not re.search(r"\\b(?:wipe|clean|dust|rinse|wash)\\b", text, re.I):
+        return False
+    if re.search(r"\\d|\\b(?:volt(?:age)?|amp(?:ere)?|watt|ohm|psi|torque|"
+                 r"terminal|connector|wire|controller|fault|error|diagnos|"
+                 r"measure|test|replace|inspect|brake|battery|motor)\\b", text, re.I):
+        return False
+    return True
+
+
 def _candidate_from_statement(observation: EvidenceObservation) -> FactCandidate:
     # Statements remain explicit review items, including those with measurements:
     # successful scalar extraction does not account for all sentence meaning.
-    reason = "statement_semantic_interpretation_required"
+    guidance_only = _is_searchable_cleaning_guidance(observation)
+    reason = None if guidance_only else "statement_semantic_interpretation_required"
     context = dict(observation.context)
+    if guidance_only:
+        context["evidence_route"] = "searchable_guidance"
+
     structure = context.get("structure")
     recurring_instructions = (
         structure.get("recurring_service_instructions", [])
@@ -364,9 +384,9 @@ def _candidate_from_statement(observation: EvidenceObservation) -> FactCandidate
         qualifiers=tuple(observation.qualifiers),
         conditions=conditions,
         context=context,
-        readiness=REVIEW,
+        readiness=EVIDENCE_ONLY if guidance_only else REVIEW,
         review_reason=reason,
-        review_reasons=(reason,),
+        review_reasons=(reason,) if reason else (),
     )
 
 
