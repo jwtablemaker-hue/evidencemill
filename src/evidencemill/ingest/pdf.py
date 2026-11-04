@@ -10,6 +10,34 @@ def _bbox(value):
     return tuple(float(x) for x in value) if value is not None else None
 
 
+def _ocr_regions(image):
+    """Split only wide images with a blank center and content on both sides.
+
+    Inspect a small grayscale copy; OCR still receives the full-resolution crops.
+    A landscape aspect ratio alone is not evidence of a two-page spread.
+    """
+    width, height = image.size
+    whole = (0, 0, width, height)
+    if width < 1.5 * height:
+        return [whole]
+    sample = image.convert("L")
+    sample.thumbnail((1100, 1100))
+    sw, sh = sample.size
+
+    def ink_fraction(left, right):
+        histogram = sample.crop((
+            int(sw * left), int(sh * .05), int(sw * right), int(sh * .95),
+        )).histogram()
+        return sum(histogram[:200]) / max(1, sum(histogram))
+
+    center = ink_fraction(.49, .51)
+    surrounding = min(ink_fraction(.10, .45), ink_fraction(.55, .90))
+    if surrounding >= .01 and center <= .005 and center <= .1 * surrounding:
+        midpoint = width // 2
+        return [(0, 0, midpoint, height), (midpoint, 0, width, height)]
+    return [whole]
+
+
 def _center_inside(
     block_bbox: tuple[float, float, float, float],
     target_bbox: tuple[float, float, float, float],
@@ -63,21 +91,32 @@ def parse_pdf(path: str | Path, *, source_id: str | None = None, ocr_scanned: bo
                 import pytesseract
             except ImportError as exc:
                 raise RuntimeError("scanned-page OCR requires the 'ocr' extra") from exc
-            pix = page.get_pixmap(matrix=fitz.Matrix(2, 2), alpha=False)
+            pix = page.get_pixmap(matrix=fitz.Matrix(4, 4), alpha=False)
             image = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
-            ocr_text = " ".join(pytesseract.image_to_string(image).split()).strip()
-            ocr_count = len("".join(ocr_text.split()))
+            region_texts = [
+                (region, " ".join(pytesseract.image_to_string(image.crop(region)).split()).strip())
+                for region in _ocr_regions(image)
+            ]
+            ocr_count = sum(len("".join(text.split())) for _, text in region_texts)
             # Keep the existing textless-page fallback, even for a short OCR result.
             richer = ocr_count >= native_count + 32 and ocr_count >= 2 * native_count
-            if ocr_text and (native_count == 0 or richer):
-                counter += 1
-                blocks.append(TextBlock(
-                    text=ocr_text,
-                    block_id=f"text-{counter}",
-                    kind="ocr_paragraph",
-                    page=page_no,
-                    bbox=(0.0, 0.0, float(page.rect.width), float(page.rect.height)),
-                ))
+            if ocr_count and (native_count == 0 or richer):
+                for (x0, y0, x1, y1), text in region_texts:
+                    if not text:
+                        continue
+                    counter += 1
+                    blocks.append(TextBlock(
+                        text=text,
+                        block_id=f"text-{counter}",
+                        kind="ocr_paragraph",
+                        page=page_no,
+                        bbox=(
+                            x0 * page.rect.width / pix.width,
+                            y0 * page.rect.height / pix.height,
+                            x1 * page.rect.width / pix.width,
+                            y1 * page.rect.height / pix.height,
+                        ),
+                    ))
                 # OCR is primary. Retain native lines absent from it, without
                 # emitting a second copy of lines OCR already reproduced.
                 remaining = []
@@ -85,10 +124,10 @@ def parse_pdf(path: str | Path, *, source_id: str | None = None, ocr_scanned: bo
                     missing = []
                     for line in str(item[4]).splitlines():
                         line = " ".join(line.split())
-                        if line and not re.search(
+                        if line and not any(re.search(
                             r"(?<!\w)" + re.escape(line) + r"(?!\w)",
-                            ocr_text, flags=re.IGNORECASE,
-                        ):
+                            text, flags=re.IGNORECASE,
+                        ) for _, text in region_texts):
                             missing.append(line)
                     if missing:
                         remaining.append((*item[:4], "\n".join(missing), *item[5:]))
