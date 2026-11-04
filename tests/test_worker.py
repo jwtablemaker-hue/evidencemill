@@ -2,10 +2,29 @@ import unittest
 
 from evidencemill.ingest.text import parse_text
 from evidencemill.models import EvidenceObservation, SourceRef
-from evidencemill.worker import READY, REVIEW, FactPrepWorker, observation_to_candidate
+from evidencemill.worker import READY, REVIEW, EVIDENCE_ONLY, FactPrepWorker, observation_to_candidate
 
 
 class FactPrepWorkerTests(unittest.TestCase):
+    def test_cleaning_guidance_is_searchable_evidence_without_review(self):
+        text = "If you see stains on the scooter's body, wipe them off with a damp cloth."
+        result = FactPrepWorker().run_document(parse_text(text, source_id="hiboy-es1"))
+        statements = [c for c in result.candidates if c.observation_kind == "statement"]
+        self.assertEqual(len(statements), 1)
+        candidate = statements[0]
+        self.assertEqual(candidate.readiness, EVIDENCE_ONLY)
+        self.assertEqual(candidate.context["evidence_route"], "searchable_guidance")
+        self.assertEqual(candidate.review_reasons, ())
+        self.assertIn("wipe them off", candidate.source.raw_text)
+
+    def test_mixed_cleaning_and_technical_content_remains_reviewable(self):
+        text = "Clean the battery terminals and measure 48 V after charging."
+        result = FactPrepWorker().run_document(parse_text(text, source_id="manual"))
+        statements = [c for c in result.candidates if c.observation_kind == "statement"]
+        self.assertTrue(statements)
+        self.assertTrue(all(c.readiness == REVIEW for c in statements))
+        self.assertTrue(any(c.observation_kind == "measurement" for c in result.candidates))
+
     def test_table_cell_is_ready_when_context_is_explicit(self):
         observation = EvidenceObservation(
             kind="table_cell",
