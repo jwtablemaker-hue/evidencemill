@@ -316,11 +316,11 @@ def _is_searchable_cleaning_guidance(observation: EvidenceObservation) -> bool:
     Numeric/technical mixed passages stay in REVIEW for fact extraction.
     """
     text = str(observation.context.get("statement") or observation.source.raw_text or "")
-    if not re.search(r"\\b(?:wipe|clean|dust|rinse|wash)\\b", text, re.I):
+    if not re.search(r"\b(?:wipe|clean|dust|rinse|wash)\b", text, re.I):
         return False
-    if re.search(r"\\d|\\b(?:volt(?:age)?|amp(?:ere)?|watt|ohm|psi|torque|"
+    if re.search(r"\d|\b(?:volt(?:age)?|amp(?:ere)?|watt|ohm|psi|torque|"
                  r"terminal|connector|wire|controller|fault|error|diagnos|"
-                 r"measure|test|replace|inspect|brake|battery|motor)\\b", text, re.I):
+                 r"measure|test|replace|inspect|brake|battery|motor)\b", text, re.I):
         return False
     return True
 
