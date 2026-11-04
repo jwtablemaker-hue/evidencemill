@@ -182,6 +182,7 @@ class SentenceStructureTests(unittest.TestCase):
         instruction = result.recurring_service_instructions[0]
         self.assertEqual(instruction.action, "inspect")
         self.assertIsNone(instruction.target_component_kind)
+        self.assertFalse(instruction.target_machine)
 
 
     def test_after_every_use_retains_event_recurrence_and_battery_target(self):
@@ -198,7 +199,7 @@ class SentenceStructureTests(unittest.TestCase):
         self.assertIsNone(instruction.recurrence_value)
         self.assertIsNone(instruction.recurrence_unit)
 
-    def test_before_every_use_is_recognized_without_inventing_component(self):
+    def test_before_every_use_retains_explicit_machine_target(self):
         result = analyze_statement("Check the scooter before every use.")
         self.assertEqual(len(result.recurring_service_instructions), 1)
         instruction = result.recurring_service_instructions[0]
@@ -206,6 +207,7 @@ class SentenceStructureTests(unittest.TestCase):
         self.assertEqual(instruction.recurrence_event, "use")
         self.assertEqual(instruction.recurrence_relation, "before")
         self.assertIsNone(instruction.target_component_kind)
+        self.assertTrue(instruction.target_machine)
 
     def test_event_without_every_is_not_recurring(self):
         result = analyze_statement("Charge the battery after use.")
