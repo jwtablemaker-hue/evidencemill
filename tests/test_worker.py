@@ -1,5 +1,6 @@
 import unittest
 
+from evidencemill.ingest.text import parse_text
 from evidencemill.models import EvidenceObservation, SourceRef
 from evidencemill.worker import READY, REVIEW, FactPrepWorker, observation_to_candidate
 
@@ -71,6 +72,41 @@ class FactPrepWorkerTests(unittest.TestCase):
         self.assertEqual(result.report.candidate_count, 1)
         self.assertEqual(result.report.ready_count, 1)
         self.assertEqual(result.report.evidence_only_count, 1)
+
+
+    def test_recurring_recharge_statement_is_preserved_and_scalar_is_held(self):
+        sentence = (
+            "Keep in mind to recharge it every 60 days to protect the battery "
+            "from potential damage which is beyond limited warranty."
+        )
+        result = FactPrepWorker().run_document(parse_text(sentence, source_id="hiboy-es1"))
+        statement = next(
+            item for item in result.candidates
+            if item.observation_kind == "statement"
+        )
+        interval = next(
+            item for item in result.candidates
+            if item.observation_kind == "measurement" and item.unit == "day"
+        )
+
+        instruction = statement.conditions["recurring_service_instruction"]
+        self.assertEqual(instruction["action"], "recharge")
+        self.assertEqual(instruction["target_component_kind"], "battery")
+        self.assertEqual(instruction["recurrence_marker"], "every")
+        self.assertEqual(instruction["recurrence_value"], 60.0)
+        self.assertEqual(instruction["recurrence_unit"], "day")
+        self.assertEqual(statement.subject_hint, "battery")
+
+        self.assertEqual(interval.predicate_hint, "duration")
+        self.assertEqual(interval.readiness, REVIEW)
+        self.assertIn(
+            "recurring_service_instruction_requires_interpretation",
+            interval.review_reasons,
+        )
+        self.assertEqual(
+            interval.conditions["recurring_service_instruction"]["action"],
+            "recharge",
+        )
 
 
 if __name__ == "__main__":
