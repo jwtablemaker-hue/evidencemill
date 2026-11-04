@@ -580,7 +580,9 @@ class FactPrepWorker:
         elapsed = time.perf_counter() - start
         ready = sum(item.readiness == READY for item in candidates)
         review = sum(item.readiness == REVIEW for item in candidates)
-        evidence_only = len(observations) - len(candidates) + sum(\n            item.readiness == EVIDENCE_ONLY for item in candidates\n        )
+        evidence_only = len(observations) - len(candidates) + sum(
+            item.readiness == EVIDENCE_ONLY for item in candidates
+        )
 
         return WorkerResult(
             candidates=tuple(candidates),
