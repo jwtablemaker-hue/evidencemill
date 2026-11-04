@@ -96,6 +96,30 @@ class PdfOcrTests(unittest.TestCase):
         self.assertIn("Battery maintenance", statements)
         self.assertIn("After every use, fully charge the battery to prolong its lifespan.", statements)
 
+    def test_spurious_blank_line_inside_sentence_is_rejoined(self):
+        ocr = (
+            "The damage caused by prolonged no charge is irreversible. "
+            "Once the damage is done, the\n\n"
+            "battery can not be recharged."
+        )
+        document, calls = self.parse("", ocr)
+        self.assertEqual(calls, 1)
+        blocks = [b for b in document.blocks if isinstance(b, TextBlock)]
+        self.assertEqual(
+            blocks[0].text,
+            "The damage caused by prolonged no charge is irreversible. "
+            "Once the damage is done, the battery can not be recharged.",
+        )
+        statements = [
+            c.source.raw_text
+            for c in FactPrepWorker().run_document(document).candidates
+            if c.observation_kind == "statement"
+        ]
+        self.assertIn(
+            "Once the damage is done, the battery can not be recharged.",
+            statements,
+        )
+
     def test_textless_page_keeps_short_ocr(self):
         document, calls = self.parse("", "ES1")
         self.assertEqual(calls, 1)
