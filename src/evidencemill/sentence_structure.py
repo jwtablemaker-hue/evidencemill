@@ -108,6 +108,7 @@ _RECURRENCE_EVENTS = {
     "ride": "ride",
     "trip": "trip",
 }
+_MACHINE_WORDS = frozenset({"scooter", "escooter", "vehicle"})
 
 
 @dataclass(frozen=True)
@@ -150,6 +151,7 @@ class RecurringServiceInstruction:
     action_text: str
     target_component_kind: str | None
     recurrence_marker: str
+    target_machine: bool = False
     recurrence_value: float | tuple[float, ...] | None = None
     recurrence_unit: str | None = None
     recurrence_event: str | None = None
@@ -329,12 +331,17 @@ def _recurring_service_instructions(
             next(iter(clause_components)) if len(clause_components) == 1 else None
         )
 
+        target_machine = (
+            target_component_kind is None
+            and any(token.norm in _MACHINE_WORDS for token in tokens)
+        )
         unit_token = tokens[number_index + 1]
         out.append(RecurringServiceInstruction(
             action=action,
             action_text=text[tokens[action_index].start:unit_token.end],
             target_component_kind=target_component_kind,
             recurrence_marker="every",
+            target_machine=target_machine,
             recurrence_value=measurement.value,
             recurrence_unit=measurement.unit,
         ))
@@ -405,12 +412,17 @@ def _event_recurring_service_instructions(
         target_component_kind = (
             next(iter(component_kinds)) if len(component_kinds) == 1 else None
         )
+        target_machine = (
+            target_component_kind is None
+            and any(token.norm in _MACHINE_WORDS for token in tokens)
+        )
 
         out.append(RecurringServiceInstruction(
             action=action,
             action_text=text.strip(),
             target_component_kind=target_component_kind,
             recurrence_marker="every",
+            target_machine=target_machine,
             recurrence_event=event,
             recurrence_relation=relation,
         ))
