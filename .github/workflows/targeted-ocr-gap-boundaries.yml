@@ -6,6 +6,8 @@ on:
       - fix/ocr-large-gap-boundaries-20261104
     paths:
       - '.github/workflows/targeted-ocr-gap-boundaries.yml'
+      - 'src/evidencemill/ingest/pdf.py'
+      - 'tests/test_pdf_ingest.py'
   workflow_dispatch:
 
 permissions:
