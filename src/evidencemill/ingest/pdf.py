@@ -240,7 +240,9 @@ def parse_pdf(path: str | Path, *, source_id: str | None = None, ocr_scanned: bo
             region_texts = [
                 (
                     region,
-                    _ocr_text_with_layout(image.crop(region), pytesseract),
+                    _normalize_text_preserving_paragraphs(
+                        _ocr_text_with_layout(image.crop(region), pytesseract)
+                    ),
                 )
                 for region in _ocr_regions(image)
             ]
