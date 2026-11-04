@@ -100,6 +100,20 @@ _SERVICE_ACTIONS = {
     "lubricate": "lubricate",
     "tighten": "tighten",
     "clean": "clean",
+    "open": "open",
+    "insert": "insert",
+    "fill": "fill",
+    "fix": "fix",
+    "connect": "connect",
+    "cover": "cover",
+    "leave": "leave",
+    "wipe": "wipe",
+    "wash": "wash",
+    "wear": "wear",
+    "turn": "turn",
+    "step": "step",
+    "glide": "glide",
+    "use": "use",
 }
 
 _RECURRENCE_UNITS = frozenset({"min", "h", "day", "week", "month", "year"})
@@ -146,6 +160,15 @@ class Measurement:
 
 
 @dataclass(frozen=True)
+class ServiceInstruction:
+    actions: tuple[str, ...]
+    action_text: str
+    negated: bool
+    mentioned_component_kinds: tuple[str, ...]
+    target_machine: bool
+
+
+@dataclass(frozen=True)
 class RecurringServiceInstruction:
     action: str
     action_text: str
@@ -165,6 +188,7 @@ class StatementStructure:
     components: tuple[ComponentMention, ...]
     measurements: tuple[Measurement, ...]
     recurring_service_instructions: tuple[RecurringServiceInstruction, ...]
+    service_instructions: tuple[ServiceInstruction, ...]
     flags: frozenset[str]
 
     def to_dict(self) -> dict:
@@ -173,6 +197,9 @@ class StatementStructure:
             "measurements": [asdict(item) for item in self.measurements],
             "recurring_service_instructions": [
                 asdict(item) for item in self.recurring_service_instructions
+            ],
+            "service_instructions": [
+                asdict(item) for item in self.service_instructions
             ],
             "flags": sorted(self.flags),
         }
@@ -429,6 +456,60 @@ def _event_recurring_service_instructions(
     return out
 
 
+def _direct_service_instructions(
+    text: str,
+    tokens: list[Token],
+    components: list[ComponentMention],
+) -> list[ServiceInstruction]:
+    """Recognize source-explicit direct imperatives/prohibitions only."""
+    if not tokens:
+        return []
+
+    index = 0
+    if _NUMBER_FULL_RE.fullmatch(tokens[index].norm):
+        index += 1
+        if index >= len(tokens):
+            return []
+
+    negated = False
+    if tokens[index].norm in {"always", "please"}:
+        index += 1
+    elif (
+        tokens[index].norm == "do"
+        and index + 1 < len(tokens)
+        and tokens[index + 1].norm == "not"
+    ):
+        negated = True
+        index += 2
+    elif tokens[index].norm == "never":
+        negated = True
+        index += 1
+
+    if index >= len(tokens):
+        return []
+    first_action = _SERVICE_ACTIONS.get(tokens[index].norm)
+    if first_action is None:
+        return []
+
+    actions = [first_action]
+    if (
+        index + 2 < len(tokens)
+        and tokens[index + 1].norm == "and"
+        and tokens[index + 2].norm in _SERVICE_ACTIONS
+    ):
+        actions.append(_SERVICE_ACTIONS[tokens[index + 2].norm])
+
+    mentioned = tuple(sorted({item.kind for item in components}))
+    target_machine = any(token.norm in _MACHINE_WORDS for token in tokens)
+    return [ServiceInstruction(
+        actions=tuple(actions),
+        action_text=text.strip(),
+        negated=negated,
+        mentioned_component_kinds=mentioned,
+        target_machine=target_machine,
+    )]
+
+
 def analyze_statement(text: str) -> StatementStructure:
     tokens = _tokens(text)
     words = [token.norm for token in tokens]
@@ -609,6 +690,11 @@ def analyze_statement(text: str) -> StatementStructure:
     recurring_service_instructions.extend(
         _event_recurring_service_instructions(text, tokens, components)
     )
+    service_instructions = (
+        []
+        if recurring_service_instructions
+        else _direct_service_instructions(text, tokens, components)
+    )
 
     return StatementStructure(
         text=text,
@@ -616,6 +702,7 @@ def analyze_statement(text: str) -> StatementStructure:
         components=tuple(components),
         measurements=tuple(measurements),
         recurring_service_instructions=tuple(recurring_service_instructions),
+        service_instructions=tuple(service_instructions),
         flags=frozenset(flags),
     )
 

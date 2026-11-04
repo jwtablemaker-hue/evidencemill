@@ -214,5 +214,45 @@ class SentenceStructureTests(unittest.TestCase):
         self.assertEqual(result.recurring_service_instructions, ())
 
 
+    def test_direct_charging_steps_retain_actions_without_recurrence(self):
+        samples = (
+            ("Open the rubber cover", ("open",), False),
+            ("Insert the charger plug in", ("insert",), False),
+            ("Fill and fix the rubber plug after the charging", ("fill", "fix"), False),
+            ("Do not connect the charger if the charging port is wet.", ("connect",), True),
+            ("Always charge before exhausting the battery to prolong the battery's lifespan.", ("charge",), False),
+        )
+        for text, actions, negated in samples:
+            with self.subTest(text=text):
+                result = analyze_statement(text)
+                self.assertEqual(len(result.service_instructions), 1)
+                instruction = result.service_instructions[0]
+                self.assertEqual(instruction.actions, actions)
+                self.assertEqual(instruction.negated, negated)
+                self.assertEqual(instruction.action_text, text)
+
+    def test_direct_instruction_preserves_mentions_without_claiming_target(self):
+        result = analyze_statement(
+            "Do not connect the charger if the charging port is wet."
+        )
+        instruction = result.service_instructions[0]
+        self.assertEqual(
+            instruction.mentioned_component_kinds,
+            ("charger", "port"),
+        )
+        self.assertFalse(instruction.target_machine)
+
+    def test_declarative_charging_statement_is_not_promoted_to_instruction(self):
+        result = analyze_statement(
+            "Your scooter will be fully charged when the LED light changes to green."
+        )
+        self.assertEqual(result.service_instructions, ())
+
+    def test_recurring_instruction_is_not_duplicated_as_direct_instruction(self):
+        result = analyze_statement("Check the scooter before every use.")
+        self.assertEqual(len(result.recurring_service_instructions), 1)
+        self.assertEqual(result.service_instructions, ())
+
+
 if __name__ == "__main__":
     unittest.main()

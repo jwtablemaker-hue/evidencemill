@@ -315,15 +315,27 @@ def _candidate_from_statement(observation: EvidenceObservation) -> FactCandidate
     reason = "statement_semantic_interpretation_required"
     context = dict(observation.context)
     structure = context.get("structure")
-    instructions = (
+    recurring_instructions = (
         structure.get("recurring_service_instructions", [])
         if isinstance(structure, dict)
         else []
     )
-    instruction = instructions[0] if len(instructions) == 1 else None
+    recurring_instruction = (
+        recurring_instructions[0] if len(recurring_instructions) == 1 else None
+    )
+    service_instructions = (
+        structure.get("service_instructions", [])
+        if isinstance(structure, dict)
+        else []
+    )
+    service_instruction = (
+        service_instructions[0] if len(service_instructions) == 1 else None
+    )
     conditions = _statement_conditions(observation)
-    if isinstance(instruction, dict):
-        conditions["recurring_service_instruction"] = dict(instruction)
+    if isinstance(recurring_instruction, dict):
+        conditions["recurring_service_instruction"] = dict(recurring_instruction)
+    elif isinstance(service_instruction, dict):
+        conditions["service_instruction"] = dict(service_instruction)
     return FactCandidate(
         candidate_id=_stable_id(observation.source, observation.kind, None, None,
                                 observation.value, None),
@@ -331,12 +343,21 @@ def _candidate_from_statement(observation: EvidenceObservation) -> FactCandidate
         observation_kind=observation.kind,
         subject_hint=(
             (
-                instruction.get("target_component_kind")
-                or ("machine" if instruction.get("target_machine") else None)
+                recurring_instruction.get("target_component_kind")
+                or (
+                    "machine"
+                    if recurring_instruction.get("target_machine")
+                    else None
+                )
                 or observation.subject_hint
             )
-            if isinstance(instruction, dict)
-            else observation.subject_hint
+            if isinstance(recurring_instruction, dict)
+            else (
+                "machine"
+                if isinstance(service_instruction, dict)
+                and service_instruction.get("target_machine")
+                else observation.subject_hint
+            )
         ),
         predicate_hint=None,
         value=observation.value,
