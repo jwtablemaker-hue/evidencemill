@@ -126,5 +126,21 @@ class FactPrepWorkerTests(unittest.TestCase):
         self.assertIsNone(instruction["recurrence_unit"])
 
 
+    def test_before_every_use_becomes_machine_service_statement(self):
+        sentence = "Check the scooter before every use."
+        result = FactPrepWorker().run_document(parse_text(sentence, source_id="hiboy-es1"))
+        statement = next(
+            item for item in result.candidates
+            if item.observation_kind == "statement"
+        )
+        instruction = statement.conditions["recurring_service_instruction"]
+        self.assertEqual(statement.subject_hint, "machine")
+        self.assertEqual(instruction["action"], "check")
+        self.assertTrue(instruction["target_machine"])
+        self.assertIsNone(instruction["target_component_kind"])
+        self.assertEqual(instruction["recurrence_event"], "use")
+        self.assertEqual(instruction["recurrence_relation"], "before")
+
+
 if __name__ == "__main__":
     unittest.main()

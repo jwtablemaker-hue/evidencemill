@@ -330,7 +330,11 @@ def _candidate_from_statement(observation: EvidenceObservation) -> FactCandidate
         source=observation.source,
         observation_kind=observation.kind,
         subject_hint=(
-            instruction.get("target_component_kind")
+            (
+                instruction.get("target_component_kind")
+                or ("machine" if instruction.get("target_machine") else None)
+                or observation.subject_hint
+            )
             if isinstance(instruction, dict)
             else observation.subject_hint
         ),
