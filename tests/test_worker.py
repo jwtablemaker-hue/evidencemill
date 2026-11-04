@@ -109,5 +109,22 @@ class FactPrepWorkerTests(unittest.TestCase):
         )
 
 
+    def test_after_every_use_becomes_battery_service_statement(self):
+        sentence = "After every use, fully charge the battery to prolong its lifespan."
+        result = FactPrepWorker().run_document(parse_text(sentence, source_id="hiboy-es1"))
+        statement = next(
+            item for item in result.candidates
+            if item.observation_kind == "statement"
+        )
+        instruction = statement.conditions["recurring_service_instruction"]
+        self.assertEqual(statement.subject_hint, "battery")
+        self.assertEqual(instruction["action"], "charge")
+        self.assertEqual(instruction["target_component_kind"], "battery")
+        self.assertEqual(instruction["recurrence_event"], "use")
+        self.assertEqual(instruction["recurrence_relation"], "after")
+        self.assertIsNone(instruction["recurrence_value"])
+        self.assertIsNone(instruction["recurrence_unit"])
+
+
 if __name__ == "__main__":
     unittest.main()

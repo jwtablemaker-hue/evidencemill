@@ -184,5 +184,33 @@ class SentenceStructureTests(unittest.TestCase):
         self.assertIsNone(instruction.target_component_kind)
 
 
+    def test_after_every_use_retains_event_recurrence_and_battery_target(self):
+        result = analyze_statement(
+            "After every use, fully charge the battery to prolong its lifespan."
+        )
+        self.assertEqual(len(result.recurring_service_instructions), 1)
+        instruction = result.recurring_service_instructions[0]
+        self.assertEqual(instruction.action, "charge")
+        self.assertEqual(instruction.target_component_kind, "battery")
+        self.assertEqual(instruction.recurrence_marker, "every")
+        self.assertEqual(instruction.recurrence_event, "use")
+        self.assertEqual(instruction.recurrence_relation, "after")
+        self.assertIsNone(instruction.recurrence_value)
+        self.assertIsNone(instruction.recurrence_unit)
+
+    def test_before_every_use_is_recognized_without_inventing_component(self):
+        result = analyze_statement("Check the scooter before every use.")
+        self.assertEqual(len(result.recurring_service_instructions), 1)
+        instruction = result.recurring_service_instructions[0]
+        self.assertEqual(instruction.action, "check")
+        self.assertEqual(instruction.recurrence_event, "use")
+        self.assertEqual(instruction.recurrence_relation, "before")
+        self.assertIsNone(instruction.target_component_kind)
+
+    def test_event_without_every_is_not_recurring(self):
+        result = analyze_statement("Charge the battery after use.")
+        self.assertEqual(result.recurring_service_instructions, ())
+
+
 if __name__ == "__main__":
     unittest.main()
