@@ -6,6 +6,10 @@ on:
       - fix/pdf-paragraph-boundaries-20261104
     paths:
       - '.github/workflows/targeted-pdf-paragraph-boundaries.yml'
+      - 'src/evidencemill/ingest/pdf.py'
+      - 'src/evidencemill/pipeline.py'
+      - 'tests/test_pdf_ingest.py'
+      - 'tests/test_document_pipeline.py'
   workflow_dispatch:
 
 permissions:
