@@ -1,0 +1,60 @@
+name: ES-1 service instruction probe
+
+on:
+  push:
+    branches:
+      - test/service-instruction-probe-20261104
+    paths:
+      - '.github/workflows/service-instruction-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install --disable-pip-version-check -e .
+      - name: Probe retained ES-1 instruction shapes
+        shell: bash
+        run: |
+          python - <<'PY'
+          from evidencemill.ingest.text import parse_text
+          from evidencemill.worker import FactPrepWorker
+
+          samples = [
+              "Always charge before exhausting the battery to prolong the battery's lifespan.",
+              "Open the rubber cover.",
+              "Insert the charger plug in.",
+              "Fill and fix the rubber plug after the charging.",
+              "Do not connect the charger if the charging port is wet.",
+              "If you see stains on the scooter's body, wipe them off with a damp cloth.",
+              "Do not wash the scooter with a high-pressure water spray.",
+              "Tighten the two screws on the pipe clamp to ensure a secure installation.",
+          ]
+
+          for i, text in enumerate(samples, 1):
+              result = FactPrepWorker().run_document(
+                  parse_text(text, source_id=f"probe-{i}")
+              )
+              print("\nSAMPLE", i)
+              print("TEXT", text)
+              for candidate in result.candidates:
+                  print("CANDIDATE", {
+                      "kind": candidate.observation_kind,
+                      "subject": candidate.subject_hint,
+                      "predicate": candidate.predicate_hint,
+                      "value": candidate.value,
+                      "unit": candidate.unit,
+                      "conditions": candidate.conditions,
+                      "structure": candidate.context.get("structure"),
+                      "readiness": candidate.readiness,
+                      "review_reasons": candidate.review_reasons,
+                  })
+          PY
