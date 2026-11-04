@@ -15,8 +15,17 @@ _SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+(?=[A-Z0-9])")
 
 
 def split_sentences(text: str) -> tuple[str, ...]:
-    parts = tuple(part.strip() for part in _SENTENCE_SPLIT.split(text) if part.strip())
-    return parts or ((text.strip(),) if text.strip() else ())
+    parts = []
+    for paragraph in re.split(r"\n\s*\n+", text):
+        paragraph = " ".join(paragraph.split()).strip()
+        if not paragraph:
+            continue
+        parts.extend(
+            part.strip()
+            for part in _SENTENCE_SPLIT.split(paragraph)
+            if part.strip()
+        )
+    return tuple(parts) or ((text.strip(),) if text.strip() else ())
 
 
 def _location(block, suffix: str | None = None) -> str:
