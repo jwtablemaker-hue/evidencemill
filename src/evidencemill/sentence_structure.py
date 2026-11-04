@@ -90,6 +90,20 @@ _SCOPED_REVIEW_FLAGS = frozenset({
     "dual_mode", "variant_only", "per_motor", "each_motor", "per_battery", "each_battery",
 })
 
+_SERVICE_ACTIONS = {
+    "recharge": "recharge",
+    "re-charge": "recharge",
+    "charge": "charge",
+    "inspect": "inspect",
+    "check": "check",
+    "replace": "replace",
+    "lubricate": "lubricate",
+    "tighten": "tighten",
+    "clean": "clean",
+}
+
+_RECURRENCE_UNITS = frozenset({"min", "h", "day", "week", "month", "year"})
+
 
 @dataclass(frozen=True)
 class Token:
@@ -126,17 +140,31 @@ class Measurement:
 
 
 @dataclass(frozen=True)
+class RecurringServiceInstruction:
+    action: str
+    action_text: str
+    target_component_kind: str | None
+    recurrence_marker: str
+    recurrence_value: float | tuple[float, ...]
+    recurrence_unit: str
+
+
+@dataclass(frozen=True)
 class StatementStructure:
     text: str
     tokens: tuple[Token, ...]
     components: tuple[ComponentMention, ...]
     measurements: tuple[Measurement, ...]
+    recurring_service_instructions: tuple[RecurringServiceInstruction, ...]
     flags: frozenset[str]
 
     def to_dict(self) -> dict:
         return {
             "components": [asdict(item) for item in self.components],
             "measurements": [asdict(item) for item in self.measurements],
+            "recurring_service_instructions": [
+                asdict(item) for item in self.recurring_service_instructions
+            ],
             "flags": sorted(self.flags),
         }
 
@@ -251,6 +279,59 @@ def _local_measurement_context(
         else None
     )
     return comparison, local_label
+
+
+def _recurring_service_instructions(
+    text: str,
+    tokens: list[Token],
+    components: list[ComponentMention],
+    measurements: list[Measurement],
+) -> list[RecurringServiceInstruction]:
+    """Recognize explicit recurring service actions without inventing a target.
+
+    A duration becomes a recurrence only when the source literally uses "every"
+    and a supported service action appears in the same clause.
+    """
+    out: list[RecurringServiceInstruction] = []
+    for measurement in measurements:
+        if measurement.unit not in _RECURRENCE_UNITS:
+            continue
+        number_index = measurement.token_index
+        if number_index < 2 or tokens[number_index - 1].norm != "every":
+            continue
+
+        action_index = None
+        action = None
+        for index in range(number_index - 2, -1, -1):
+            if not _same_clause(text, tokens[index], tokens[number_index]):
+                break
+            normalized = _SERVICE_ACTIONS.get(tokens[index].norm)
+            if normalized:
+                action_index = index
+                action = normalized
+                break
+        if action_index is None or action is None:
+            continue
+
+        clause_components = {
+            item.kind
+            for item in components
+            if _same_clause(text, tokens[number_index], tokens[item.token_index])
+        }
+        target_component_kind = (
+            next(iter(clause_components)) if len(clause_components) == 1 else None
+        )
+
+        unit_token = tokens[number_index + 1]
+        out.append(RecurringServiceInstruction(
+            action=action,
+            action_text=text[tokens[action_index].start:unit_token.end],
+            target_component_kind=target_component_kind,
+            recurrence_marker="every",
+            recurrence_value=measurement.value,
+            recurrence_unit=measurement.unit,
+        ))
+    return out
 
 
 def analyze_statement(text: str) -> StatementStructure:
@@ -427,11 +508,16 @@ def analyze_statement(text: str) -> StatementStructure:
             qualifiers=tuple(sorted(qualifiers)),
         ))
 
+    recurring_service_instructions = _recurring_service_instructions(
+        text, tokens, components, measurements
+    )
+
     return StatementStructure(
         text=text,
         tokens=tuple(tokens),
         components=tuple(components),
         measurements=tuple(measurements),
+        recurring_service_instructions=tuple(recurring_service_instructions),
         flags=frozenset(flags),
     )
 
