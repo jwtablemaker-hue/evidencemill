@@ -103,6 +103,11 @@ _SERVICE_ACTIONS = {
 }
 
 _RECURRENCE_UNITS = frozenset({"min", "h", "day", "week", "month", "year"})
+_RECURRENCE_EVENTS = {
+    "use": "use",
+    "ride": "ride",
+    "trip": "trip",
+}
 
 
 @dataclass(frozen=True)
@@ -145,8 +150,10 @@ class RecurringServiceInstruction:
     action_text: str
     target_component_kind: str | None
     recurrence_marker: str
-    recurrence_value: float | tuple[float, ...]
-    recurrence_unit: str
+    recurrence_value: float | tuple[float, ...] | None = None
+    recurrence_unit: str | None = None
+    recurrence_event: str | None = None
+    recurrence_relation: str | None = None
 
 
 @dataclass(frozen=True)
@@ -334,6 +341,82 @@ def _recurring_service_instructions(
     return out
 
 
+def _event_recurring_service_instructions(
+    text: str,
+    tokens: list[Token],
+    components: list[ComponentMention],
+) -> list[RecurringServiceInstruction]:
+    """Recognize explicit before/after-every-event service recurrence.
+
+    Event recurrence is preserved separately from time duration. It does not
+    synthesize a numeric interval or invent a component target.
+    """
+    out: list[RecurringServiceInstruction] = []
+    for index in range(len(tokens) - 2):
+        relation = tokens[index].norm
+        if relation not in {"before", "after"}:
+            continue
+        if tokens[index + 1].norm != "every":
+            continue
+        event = _RECURRENCE_EVENTS.get(tokens[index + 2].norm)
+        if event is None:
+            continue
+
+        action_index = None
+        action = None
+
+        # Suffix form: "check ... before every use"
+        for candidate in range(index - 1, -1, -1):
+            segment = text[tokens[candidate].end:tokens[index].start]
+            if re.search(r"[;!?]|(?<!\\d)\\.(?!\\d)", segment):
+                break
+            normalized = _SERVICE_ACTIONS.get(tokens[candidate].norm)
+            if normalized:
+                action_index = candidate
+                action = normalized
+                break
+
+        # Prefix form: "after every use, charge ..."
+        if action_index is None:
+            for candidate in range(index + 3, len(tokens)):
+                segment = text[tokens[index + 2].end:tokens[candidate].start]
+                if re.search(r"[;!?]|(?<!\\d)\\.(?!\\d)", segment):
+                    break
+                normalized = _SERVICE_ACTIONS.get(tokens[candidate].norm)
+                if normalized:
+                    action_index = candidate
+                    action = normalized
+                    break
+
+        if action_index is None or action is None:
+            continue
+
+        component_kinds = {
+            item.kind
+            for item in components
+            if not re.search(
+                r"[;!?]|(?<!\\d)\\.(?!\\d)",
+                text[
+                    min(tokens[action_index].end, tokens[item.token_index].end):
+                    max(tokens[action_index].start, tokens[item.token_index].start)
+                ],
+            )
+        }
+        target_component_kind = (
+            next(iter(component_kinds)) if len(component_kinds) == 1 else None
+        )
+
+        out.append(RecurringServiceInstruction(
+            action=action,
+            action_text=text.strip(),
+            target_component_kind=target_component_kind,
+            recurrence_marker="every",
+            recurrence_event=event,
+            recurrence_relation=relation,
+        ))
+    return out
+
+
 def analyze_statement(text: str) -> StatementStructure:
     tokens = _tokens(text)
     words = [token.norm for token in tokens]
@@ -510,6 +593,9 @@ def analyze_statement(text: str) -> StatementStructure:
 
     recurring_service_instructions = _recurring_service_instructions(
         text, tokens, components, measurements
+    )
+    recurring_service_instructions.extend(
+        _event_recurring_service_instructions(text, tokens, components)
     )
 
     return StatementStructure(
