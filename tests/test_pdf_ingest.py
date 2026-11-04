@@ -10,7 +10,7 @@ except ImportError:
     fitz = None
 
 from evidencemill.document import TextBlock
-from evidencemill.ingest.pdf import parse_pdf, _ocr_regions
+from evidencemill.ingest.pdf import parse_pdf, _ocr_regions, _ocr_text_with_layout
 from evidencemill.worker import FactPrepWorker
 
 
@@ -27,7 +27,7 @@ class PdfOcrTests(unittest.TestCase):
                 if native:
                     page.insert_text((72, 72), native)
                 pdf.save(path)
-            with patch("pytesseract.image_to_string", return_value=ocr) as read:
+            with patch("evidencemill.ingest.pdf._ocr_text_with_layout", return_value=ocr) as read:
                 if tables is None:
                     result = parse_pdf(path, ocr_scanned=enabled)
                 else:
@@ -165,7 +165,7 @@ class PdfOcrTests(unittest.TestCase):
                 page.insert_image(page.rect, stream=stream.getvalue())
                 page.insert_text((20, 20), "ES1")
                 pdf.save(path)
-            with patch("pytesseract.image_to_string", side_effect=read):
+            with patch("evidencemill.ingest.pdf._ocr_text_with_layout", side_effect=lambda region, _: read(region)):
                 document = parse_pdf(path, ocr_scanned=True)
         return document, seen
 
@@ -186,6 +186,56 @@ class PdfOcrTests(unittest.TestCase):
         blocks = [b for b in document.blocks if isinstance(b, TextBlock)]
         self.assertEqual(sum(b.kind == "ocr_paragraph" for b in blocks), 1)
         self.assertEqual(self.text(document).count("ES1"), 1)
+
+    def test_one_line_ocr_block_splits_only_at_anomalous_word_gap(self):
+        from types import SimpleNamespace
+
+        words = ["Open", "the", "rubber", "cover", "Insert", "the", "charger", "plug", "in"]
+        widths = [50, 30, 60, 50, 60, 30, 70, 40, 20]
+        gaps = [10, 10, 10, 40, 10, 10, 10, 10]
+        lefts = [0]
+        for width, gap in zip(widths[:-1], gaps):
+            lefts.append(lefts[-1] + width + gap)
+        data = {
+            "text": words,
+            "left": lefts,
+            "top": [10] * len(words),
+            "width": widths,
+            "height": [24] * len(words),
+            "block_num": [1] * len(words),
+            "par_num": [1] * len(words),
+            "line_num": [1] * len(words),
+        }
+        fake = SimpleNamespace(
+            Output=SimpleNamespace(DICT="DICT"),
+            image_to_data=lambda image, output_type: data,
+        )
+        self.assertEqual(
+            _ocr_text_with_layout(object(), fake),
+            "Open the rubber cover\n\nInsert the charger plug in",
+        )
+
+    def test_large_gap_in_multiline_block_is_not_forced_to_split(self):
+        from types import SimpleNamespace
+
+        data = {
+            "text": ["A", "wide", "gap", "here", "wrapped", "line"],
+            "left": [0, 20, 70, 180, 0, 70],
+            "top": [10, 10, 10, 10, 40, 40],
+            "width": [10, 30, 30, 30, 50, 30],
+            "height": [20] * 6,
+            "block_num": [1] * 6,
+            "par_num": [1] * 6,
+            "line_num": [1, 1, 1, 1, 2, 2],
+        }
+        fake = SimpleNamespace(
+            Output=SimpleNamespace(DICT="DICT"),
+            image_to_data=lambda image, output_type: data,
+        )
+        self.assertEqual(
+            _ocr_text_with_layout(object(), fake),
+            "A wide gap here wrapped line",
+        )
 
     def test_blank_landscape_and_one_sided_content_are_not_gutters(self):
         from PIL import Image, ImageDraw
