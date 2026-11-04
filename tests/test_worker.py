@@ -142,5 +142,35 @@ class FactPrepWorkerTests(unittest.TestCase):
         self.assertEqual(instruction["recurrence_relation"], "before")
 
 
+    def test_direct_service_instruction_survives_worker_handoff(self):
+        sentence = "Do not connect the charger if the charging port is wet."
+        result = FactPrepWorker().run_document(parse_text(sentence, source_id="hiboy-es1"))
+        statement = next(
+            item for item in result.candidates
+            if item.observation_kind == "statement"
+        )
+        instruction = statement.conditions["service_instruction"]
+        self.assertEqual(instruction["actions"], ("connect",))
+        self.assertTrue(instruction["negated"])
+        self.assertEqual(
+            tuple(instruction["mentioned_component_kinds"]),
+            ("charger", "port"),
+        )
+        self.assertEqual(
+            statement.conditions["source_clause"],
+            "not connect the charger if the charging port is wet.",
+        )
+
+    def test_direct_machine_instruction_carries_machine_hint(self):
+        sentence = "Do not wash the scooter with a high-pressure water spray."
+        result = FactPrepWorker().run_document(parse_text(sentence, source_id="hiboy-es1"))
+        statement = next(
+            item for item in result.candidates
+            if item.observation_kind == "statement"
+        )
+        self.assertEqual(statement.subject_hint, "machine")
+        self.assertTrue(statement.conditions["service_instruction"]["target_machine"])
+
+
 if __name__ == "__main__":
     unittest.main()
