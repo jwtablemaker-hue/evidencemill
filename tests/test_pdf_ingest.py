@@ -71,6 +71,31 @@ class PdfOcrTests(unittest.TestCase):
                 self.assertEqual(self.text(document), native)
                 self.assertEqual(document.blocks[0].kind, "paragraph")
 
+    def test_ocr_preserves_blank_line_paragraphs_and_joins_wrapped_lines(self):
+        ocr = (
+            "Battery maintenance\n\n"
+            "1. Use original battery packs;\n\n"
+            "5. After every use, fully charge the battery\n"
+            "to prolong its lifespan."
+        )
+        document, calls = self.parse("", ocr)
+        self.assertEqual(calls, 1)
+        blocks = [b for b in document.blocks if isinstance(b, TextBlock)]
+        self.assertEqual(len(blocks), 1)
+        self.assertEqual(
+            blocks[0].text,
+            "Battery maintenance\n\n"
+            "1. Use original battery packs;\n\n"
+            "5. After every use, fully charge the battery to prolong its lifespan.",
+        )
+        candidates = FactPrepWorker().run_document(document).candidates
+        statements = [
+            c.source.raw_text for c in candidates
+            if c.observation_kind == "statement"
+        ]
+        self.assertIn("Battery maintenance", statements)
+        self.assertIn("After every use, fully charge the battery to prolong its lifespan.", statements)
+
     def test_textless_page_keeps_short_ocr(self):
         document, calls = self.parse("", "ES1")
         self.assertEqual(calls, 1)
