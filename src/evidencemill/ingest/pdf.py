@@ -6,10 +6,29 @@ import re
 from evidencemill.document import Document, FigureBlock, TableBlock, TextBlock
 
 
+_CONTINUATION_WORDS = frozenset({
+    "a", "an", "and", "as", "at", "be", "by", "for", "from", "in", "is",
+    "of", "on", "or", "the", "to", "was", "were", "with",
+})
+
+
+def _looks_like_continuation(previous: str, following: str) -> bool:
+    """Reject OCR blank lines that split an obviously unfinished sentence."""
+    if not previous or not following:
+        return False
+    if previous.rstrip().endswith((".", "!", "?", ";", ":")):
+        return False
+    first = following.lstrip()[:1]
+    if first and first.islower():
+        return True
+    tail = re.findall(r"[A-Za-z]+", previous.casefold())
+    return bool(tail and tail[-1] in _CONTINUATION_WORDS)
+
+
 def _normalize_text_preserving_paragraphs(value: str) -> str:
-    """Collapse wrapped lines while retaining blank-line paragraph boundaries."""
+    """Collapse wrapped lines while retaining defensible paragraph boundaries."""
     text = str(value).replace("\r\n", "\n").replace("\r", "\n")
-    paragraphs = []
+    raw_paragraphs = []
     for paragraph in re.split(r"\n\s*\n+", text):
         joined = " ".join(
             " ".join(line.split())
@@ -17,7 +36,14 @@ def _normalize_text_preserving_paragraphs(value: str) -> str:
             if line.strip()
         ).strip()
         if joined:
-            paragraphs.append(joined)
+            raw_paragraphs.append(joined)
+
+    paragraphs: list[str] = []
+    for paragraph in raw_paragraphs:
+        if paragraphs and _looks_like_continuation(paragraphs[-1], paragraph):
+            paragraphs[-1] = f"{paragraphs[-1]} {paragraph}"
+        else:
+            paragraphs.append(paragraph)
     return "\n\n".join(paragraphs)
 
 
