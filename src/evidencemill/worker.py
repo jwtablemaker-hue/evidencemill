@@ -317,11 +317,11 @@ def _plain_cleaning_guidance(observation: EvidenceObservation) -> bool:
         return False
     if structure.get("measurements") or structure.get("recurring_service_instructions") or structure.get("service_instructions"):
         return False
-    if re.search(r"\\d|\\b(?:voltage|current|torque|pressure|limit|threshold|replace|repair|fault|error|warning|never|must not|do not)\\b", text, re.I):
+    if re.search(r"\d|\b(?:voltage|current|torque|pressure|limit|threshold|replace|repair|fault|error|warning|never|must not|do not)\b", text, re.I):
         return False
     return bool(re.fullmatch(
         r"(?:If you (?:see|notice) (?:stains|dirt) on (?:the |your )?scooter(?:'s)? (?:body|surface),? )?"
-        r"(?:wipe (?:them|it|the surface) (?:off|clean) with a damp cloth|clean (?:the |your )?scooter(?:'s)? (?:body|surface) with a damp cloth)\\.?",
+        r"(?:wipe (?:them|it|the surface) (?:off|clean) with a damp cloth|clean (?:the |your )?scooter(?:'s)? (?:body|surface) with a damp cloth)\.?",
         text, re.I,
     ))
 
