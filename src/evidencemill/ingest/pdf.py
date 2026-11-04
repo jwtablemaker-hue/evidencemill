@@ -7,23 +7,14 @@ from statistics import median
 from evidencemill.document import Document, FigureBlock, TableBlock, TextBlock
 
 
-_CONTINUATION_WORDS = frozenset({
-    "a", "an", "and", "as", "at", "be", "by", "for", "from", "in", "is",
-    "of", "on", "or", "the", "to", "was", "were", "with",
-})
-
-
 def _looks_like_continuation(previous: str, following: str) -> bool:
-    """Reject OCR blank lines that split an obviously unfinished sentence."""
+    """Reject OCR blank lines only when the next fragment clearly continues."""
     if not previous or not following:
         return False
     if previous.rstrip().endswith((".", "!", "?", ";", ":")):
         return False
     first = following.lstrip()[:1]
-    if first and first.islower():
-        return True
-    tail = re.findall(r"[A-Za-z]+", previous.casefold())
-    return bool(tail and tail[-1] in _CONTINUATION_WORDS)
+    return bool(first and first.islower())
 
 
 def _normalize_text_preserving_paragraphs(value: str) -> str:
