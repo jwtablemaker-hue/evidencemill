@@ -6,6 +6,29 @@ from evidencemill.worker import READY, REVIEW, FactPrepWorker, observation_to_ca
 
 
 class FactPrepWorkerTests(unittest.TestCase):
+    def test_plain_cleaning_prose_does_not_request_semantic_resolver(self):
+        from evidencemill.worker import EVIDENCE_ONLY
+        calls = []
+        def resolver(candidate):
+            calls.append(candidate)
+            return candidate
+        result = FactPrepWorker(resolver=resolver).run_document(
+            parse_text("If you see stains on the scooter's body, wipe them off with a damp cloth.", source_id="manual")
+        )
+        statement = next(c for c in result.candidates if c.observation_kind == "statement")
+        self.assertEqual(statement.readiness, EVIDENCE_ONLY)
+        self.assertEqual(statement.context["routing"], "searchable_maintenance_prose")
+        self.assertIn("stains", statement.source.raw_text)
+        self.assertEqual(result.report.review_count, 0)
+        self.assertEqual(calls, [])
+
+    def test_mixed_technical_cleaning_statement_stays_review(self):
+        result = FactPrepWorker().run_document(
+            parse_text("Wipe the scooter with a damp cloth and check tire pressure at 35 psi.", source_id="manual")
+        )
+        self.assertEqual(next(c for c in result.candidates if c.observation_kind == "statement").readiness, REVIEW)
+        self.assertTrue(any(c.observation_kind == "measurement" for c in result.candidates))
+
     def test_table_cell_is_ready_when_context_is_explicit(self):
         observation = EvidenceObservation(
             kind="table_cell",

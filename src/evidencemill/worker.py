@@ -309,11 +309,31 @@ def _statement_conditions(observation: EvidenceObservation) -> dict[str, Any]:
     return {"source_clause": text[markers.start():]} if markers else {}
 
 
+def _plain_cleaning_guidance(observation: EvidenceObservation) -> bool:
+    """Conservative prose-only route; mixed or uncertain content stays in REVIEW."""
+    text = str(observation.value or "").strip()
+    structure = observation.context.get("structure")
+    if not isinstance(structure, dict):
+        return False
+    if structure.get("measurements") or structure.get("recurring_service_instructions") or structure.get("service_instructions"):
+        return False
+    if re.search(r"\d|\b(?:voltage|current|torque|pressure|limit|threshold|replace|repair|fault|error|warning|never|must not|do not)\b", text, re.I):
+        return False
+    return bool(re.fullmatch(
+        r"(?:If you (?:see|notice) (?:stains|dirt) on (?:the |your )?scooter(?:'s)? (?:body|surface),? )?"
+        r"(?:wipe (?:them|it|the surface) (?:off|clean) with a damp cloth|clean (?:the |your )?scooter(?:'s)? (?:body|surface) with a damp cloth)\.?",
+        text, re.I,
+    ))
+
+
 def _candidate_from_statement(observation: EvidenceObservation) -> FactCandidate:
     # Statements remain explicit review items, including those with measurements:
     # successful scalar extraction does not account for all sentence meaning.
-    reason = "statement_semantic_interpretation_required"
+    prose_only = _plain_cleaning_guidance(observation)
+    reason = None if prose_only else "statement_semantic_interpretation_required"
     context = dict(observation.context)
+    if prose_only:
+        context["routing"] = "searchable_maintenance_prose"
     structure = context.get("structure")
     recurring_instructions = (
         structure.get("recurring_service_instructions", [])
@@ -364,9 +384,9 @@ def _candidate_from_statement(observation: EvidenceObservation) -> FactCandidate
         qualifiers=tuple(observation.qualifiers),
         conditions=conditions,
         context=context,
-        readiness=REVIEW,
+        readiness=EVIDENCE_ONLY if prose_only else REVIEW,
         review_reason=reason,
-        review_reasons=(reason,),
+        review_reasons=(reason,) if reason else (),
     )
 
 
@@ -560,7 +580,9 @@ class FactPrepWorker:
         elapsed = time.perf_counter() - start
         ready = sum(item.readiness == READY for item in candidates)
         review = sum(item.readiness == REVIEW for item in candidates)
-        evidence_only = len(observations) - len(candidates)
+        evidence_only = len(observations) - len(candidates) + sum(
+            item.readiness == EVIDENCE_ONLY for item in candidates
+        )
 
         return WorkerResult(
             candidates=tuple(candidates),
