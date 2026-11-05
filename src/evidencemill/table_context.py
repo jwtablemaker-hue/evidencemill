@@ -212,10 +212,20 @@ def parse_table(
             column_units[col] = unit
 
     out: list[EvidenceObservation] = []
+    grouped_properties = (
+        width == 3 and header_rows == 1 and row_header_columns == 1
+        and normalized[0][0] == ""
+        and normalized[0][1].casefold() in {"item", "property"}
+        and normalized[0][2].casefold() in {"parameter", "value"}
+    )
+    section = None
     for row_index in range(header_rows, len(normalized)):
         row = normalized[row_index]
         row_header_parts = [row[c] for c in range(min(row_header_columns, width)) if row[c]]
         row_header = " / ".join(row_header_parts) or None
+
+        if grouped_properties and row_header:
+            section = row_header
 
         for col in range(row_header_columns, width):
             value = row[col]
@@ -223,6 +233,7 @@ def parse_table(
                 continue
             column_header = column_headers[col]
             unit = column_units[col]
+            row_property = row[1] if grouped_properties and col == 2 else None
             context = TableCellContext(
                 row_index=row_index,
                 column_index=col,
@@ -238,12 +249,12 @@ def parse_table(
                 source=SourceRef(
                     source_id=source_id,
                     location=f"{location + ':' if location else ''}r{row_index + 1}c{col + 1}",
-                    raw_text=value,
+                    raw_text=f"{row_property}: {value}" if row_property else value,
                 ),
                 value=value,
                 unit=unit,
-                subject_hint=row_header,
-                property_hint=column_header,
+                subject_hint=table_subject if row_property else row_header,
+                property_hint=row_property or column_header,
                 context={
                     "row_index": context.row_index,
                     "column_index": context.column_index,
@@ -251,6 +262,7 @@ def parse_table(
                     "column_header": context.column_header,
                     "table_subject": table_subject,
                     "table_layout": "matrix",
+                    **({"section_heading": section} if row_property else {}),
                     "source_caveats": list(context.notes),
                 },
                 ambiguous=not bool(row_header or column_header),
