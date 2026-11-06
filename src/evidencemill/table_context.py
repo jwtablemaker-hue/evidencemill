@@ -140,8 +140,8 @@ def parse_table(
     if (
         layout == "matrix" and header_rows == 1 and len(normalized[0]) == 3
         and normalized[0][1] and normalized[0][2]
-        and not re.search(r"\\d", normalized[0][1])
-        and re.search(r"\\d\\s*(?:V|A|Ah|Wh|W|kg|km|mm|in|psi|%)\\b", normalized[0][2], re.I)
+        and not re.search(r"\d", normalized[0][1])
+        and re.search(r"\d\s*(?:V|A|Ah|Wh|W|kg|km|mm|in|psi|%)\b", normalized[0][2], re.I)
         and not _headerish(normalized[0][2])
     ):
         header_rows = 0
@@ -230,7 +230,7 @@ def parse_table(
              and normalized[0][1].casefold() in {"item", "property"}
              and normalized[0][2].casefold() in {"parameter", "value"})
             or (header_rows == 0 and bool(normalized[0][1])
-                and bool(re.search(r"\\d", normalized[0][2])))
+                and bool(re.search(r"\d", normalized[0][2])))
         )
     )
     section = None
