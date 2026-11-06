@@ -23,6 +23,29 @@ class SentenceStructureTests(unittest.TestCase):
         self.assertIn("peak", combined_peak.qualifiers)
         self.assertIn("combined", combined_peak.qualifiers)
 
+    def test_value_suffix_multiplier_marks_each_repeated_component(self):
+        for text in (
+            "Motor nominal power: 2500W*2.",
+            "Motor nominal power: 2500 W × 2.",
+            "Motor nominal power: 2500 W x2.",
+        ):
+            with self.subTest(text=text):
+                result = analyze_statement(text)
+                self.assertEqual(len(result.measurements), 1)
+                measurement = result.measurements[0]
+                self.assertEqual(measurement.value, 2500.0)
+                self.assertEqual(measurement.unit, "W")
+                self.assertEqual(measurement.component_kind, "motor")
+                self.assertEqual(measurement.scope, "each")
+                self.assertEqual(measurement.multiplicity, 2)
+                self.assertTrue(measurement.text.endswith((" *2", "*2", " × 2", " x2")))
+
+    def test_unmultiplied_component_value_keeps_single_occurrence_unspecified(self):
+        result = analyze_statement("Motor nominal power: 2500W.")
+        measurement = result.measurements[0]
+        self.assertEqual(measurement.scope, "component")
+        self.assertIsNone(measurement.multiplicity)
+
     def test_alphanumeric_parameter_does_not_become_duration(self):
         result = analyze_statement("P04 hour/minute contradiction remains unresolved.")
         self.assertEqual(result.measurements, ())
