@@ -1,0 +1,110 @@
+{
+  "source_sha256": "b24eb0c4baa514bdc778bdd52b3e1a23f7a85c70d6db0b2b2d96ea2221a0e416",
+  "page": 6,
+  "table": "table-47",
+  "old_measurement_candidates": 43,
+  "new_measurement_observations": 15,
+  "new_measurements": [
+    [
+      125.0,
+      "km",
+      "Around 125km / Around 100km",
+      "page-6:table-47:r2c3:m1"
+    ],
+    [
+      100.0,
+      "km",
+      "Around 125km / Around 100km",
+      "page-6:table-47:r2c3:m2"
+    ],
+    [
+      28.0,
+      "h",
+      "28hr / 23hr",
+      "page-6:table-47:r3c3:m1"
+    ],
+    [
+      23.0,
+      "h",
+      "28hr / 23hr",
+      "page-6:table-47:r3c3:m2"
+    ],
+    [
+      [
+        0.0,
+        40.0
+      ],
+      "degC",
+      "0 to 40\u00b0C (Battery temperature exceeds 55\u00b0C,BMS start protection program..)",
+      "page-6:table-47:r4c3:m1"
+    ],
+    [
+      55.0,
+      "degC",
+      "0 to 40\u00b0C (Battery temperature exceeds 55\u00b0C,BMS start protection program..)",
+      "page-6:table-47:r4c3:m2"
+    ],
+    [
+      2500.0,
+      "W",
+      "2500W*2",
+      "page-6:table-47:r7c3:m1"
+    ],
+    [
+      5400.0,
+      "W",
+      "5400W*2",
+      "page-6:table-47:r8c3:m1"
+    ],
+    [
+      [
+        100.0,
+        120.0
+      ],
+      "V",
+      "100-120V/200-240V~",
+      "page-6:table-47:r9c3:m1"
+    ],
+    [
+      [
+        200.0,
+        240.0
+      ],
+      "V",
+      "100-120V/200-240V~",
+      "page-6:table-47:r9c3:m2"
+    ],
+    [
+      83.0,
+      "V",
+      "83V 1.5A \uff08Fast charger 83V5A is optional\uff09",
+      "page-6:table-47:r10c3:m1"
+    ],
+    [
+      1.5,
+      "A",
+      "83V 1.5A \uff08Fast charger 83V5A is optional\uff09",
+      "page-6:table-47:r10c3:m2"
+    ],
+    [
+      83.0,
+      "V",
+      "83V 1.5A \uff08Fast charger 83V5A is optional\uff09",
+      "page-6:table-47:r10c3:m3"
+    ],
+    [
+      11.0,
+      "in",
+      "11 inch runflat tire",
+      "page-6:table-47:r11c3:m1"
+    ],
+    [
+      50.0,
+      "psi",
+      "50 psi",
+      "page-6:table-47:r12c3:m1"
+    ]
+  ],
+  "retained_table_cells": 28,
+  "canonical_new_claims": 0
+}
