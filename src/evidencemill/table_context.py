@@ -126,6 +126,7 @@ def parse_table(
     if not normalized:
         return []
 
+    explicit_header_rows = header_rows is not None
     if layout == "auto":
         inferred_layout, inferred_headers = infer_table_layout(normalized)
         layout = inferred_layout
@@ -138,7 +139,8 @@ def parse_table(
     # headerless fragment. A property and a numeric value in its first row
     # are data, not a new column-header declaration.
     if (
-        layout == "matrix" and header_rows == 1 and len(normalized[0]) == 3
+        not explicit_header_rows and layout == "matrix"
+        and header_rows == 1 and len(normalized[0]) == 3
         and normalized[0][1] and normalized[0][2]
         and not re.search(r"\d", normalized[0][1])
         and re.search(r"\d\s*(?:V|A|Ah|Wh|W|kg|km|mm|in|psi|%)\b", normalized[0][2], re.I)
