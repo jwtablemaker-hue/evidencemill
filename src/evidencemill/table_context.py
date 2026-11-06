@@ -228,6 +228,9 @@ def parse_table(
             section = row_header
 
         for col in range(row_header_columns, width):
+            if grouped_properties and col == 1:
+                # Column 2 is the per-row property label, not a value cell.
+                continue
             value = row[col]
             if not value:
                 continue
