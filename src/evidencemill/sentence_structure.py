@@ -282,6 +282,17 @@ def _multiplicity(words: list[str], index: int) -> int | None:
     return None
 
 
+def _value_suffix_multiplicity(text: str, unit_end: int) -> tuple[int | None, int]:
+    """Preserve source forms such as 2500W*2 or 500 W × 2 as repeated units."""
+    match = re.match(r"\s*(?:\*|x|×)\s*(\d+)\b", text[unit_end:], re.I)
+    if not match:
+        return None, unit_end
+    count = int(match.group(1))
+    if count <= 1:
+        return None, unit_end
+    return count, unit_end + match.end()
+
+
 def _local_measurement_context(
     text: str,
     number_start: int,
@@ -628,6 +639,15 @@ def analyze_statement(text: str) -> StatementStructure:
         value_start = number.start
         value_end = unit_token.end
         tolerance: float | None = None
+
+        suffix_multiplicity, suffix_end = _value_suffix_multiplicity(
+            text, unit_token.end
+        )
+        if suffix_multiplicity is not None:
+            multiplicity = suffix_multiplicity
+            value_end = suffix_end
+            if nearest is not None and scope != "system":
+                scope = "each"
 
         if (
             index >= 4
