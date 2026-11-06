@@ -75,6 +75,33 @@ def _text_observations(document: Document, block: TextBlock) -> list[EvidenceObs
     return out
 
 
+def _parallel_table_alternatives(
+    value_header: object,
+    value_text: str,
+) -> tuple[tuple[str, str], ...]:
+    """Preserve positional alternatives without asserting semantic equivalence.
+
+    Only spaced slash separators qualify. This avoids splitting units such as
+    km/h and leaves compact expressions such as 100-120V/200-240V untouched.
+    """
+    header = str(value_header or "").strip()
+    if not header:
+        return ()
+    header_parts = tuple(
+        part.strip() for part in re.split(r"\s+/\s+", header)
+        if part.strip()
+    )
+    value_parts = tuple(
+        part.strip() for part in re.split(r"\s+/\s+", value_text)
+        if part.strip()
+    )
+    if len(header_parts) < 2 or len(header_parts) != len(value_parts):
+        return ()
+    if any(len(analyze_statement(part).measurements) != 1 for part in value_parts):
+        return ()
+    return tuple(zip(header_parts, value_parts))
+
+
 def _table_observations(document: Document, block: TableBlock) -> list[EvidenceObservation]:
     cells = parse_table(
         block.rows,
@@ -122,7 +149,40 @@ def _table_observations(document: Document, block: TableBlock) -> list[EvidenceO
             )
 
         structure = replace(structure, measurements=measurements)
+        parallel = _parallel_table_alternatives(
+            context.get("value_column_header"),
+            value_text,
+        )
         for measurement_index, measurement in enumerate(measurements, start=1):
+            measurement_context = {
+                "scope": measurement.scope,
+                "placement": measurement.placement,
+                "multiplicity": measurement.multiplicity,
+                "value_kind": measurement.value_kind,
+                "tolerance": measurement.tolerance,
+                "comparison": measurement.comparison,
+                "local_label": measurement.local_label,
+                "measurement_text": measurement.text,
+                "statement": statement,
+                "statement_structure": structure.to_dict(),
+                "heading_path": list(block.heading_path),
+                "table_property": cell.property_hint,
+                "table_subject": cell.subject_hint,
+                "table_section": context.get("section_heading"),
+                "table_layout": context.get("table_layout"),
+                "table_value_header": context.get("value_column_header"),
+                "table_cell_location": cell.source.location,
+                "source_caveats": context.get("source_caveats", []),
+            }
+            if parallel and len(parallel) == len(measurements):
+                header_part, value_part = parallel[measurement_index - 1]
+                measurement_context.update({
+                    "table_parallel_header_part": header_part,
+                    "table_parallel_value_part": value_part,
+                    "table_parallel_position": measurement_index,
+                    "table_parallel_count": len(parallel),
+                    "table_parallel_alignment": "positional_candidate",
+                })
             out.append(EvidenceObservation(
                 kind="measurement",
                 source=SourceRef(
@@ -134,26 +194,7 @@ def _table_observations(document: Document, block: TableBlock) -> list[EvidenceO
                 unit=measurement.unit,
                 subject_hint=measurement.component_kind or cell.subject_hint,
                 qualifiers=measurement.qualifiers,
-                context={
-                    "scope": measurement.scope,
-                    "placement": measurement.placement,
-                    "multiplicity": measurement.multiplicity,
-                    "value_kind": measurement.value_kind,
-                    "tolerance": measurement.tolerance,
-                    "comparison": measurement.comparison,
-                    "local_label": measurement.local_label,
-                    "measurement_text": measurement.text,
-                    "statement": statement,
-                    "statement_structure": structure.to_dict(),
-                    "heading_path": list(block.heading_path),
-                    "table_property": cell.property_hint,
-                    "table_subject": cell.subject_hint,
-                    "table_section": context.get("section_heading"),
-                    "table_layout": context.get("table_layout"),
-                    "table_value_header": context.get("value_column_header"),
-                    "table_cell_location": cell.source.location,
-                    "source_caveats": context.get("source_caveats", []),
-                },
+                context=measurement_context,
                 ambiguous=(measurement.scope == "unknown" and not cell.property_hint),
             ))
     return out

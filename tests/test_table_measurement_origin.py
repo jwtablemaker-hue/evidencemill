@@ -62,6 +62,57 @@ class TableMeasurementOriginTests(unittest.TestCase):
             1,
         )
 
+    def test_spaced_parallel_values_preserve_positional_configuration_context(self):
+        observations = self.observations(
+            "Around 125km / Around 100km",
+            property_label="Range",
+            section="Battery",
+        )
+        measurements = [
+            item for item in observations
+            if item.kind == "measurement"
+        ]
+        self.assertEqual(
+            [(item.value, item.unit) for item in measurements],
+            [(125.0, "km"), (100.0, "km")],
+        )
+        self.assertEqual(
+            [item.context["table_parallel_header_part"] for item in measurements],
+            ["72V40Ah(LG M50LT)", "72V32Ah"],
+        )
+        self.assertEqual(
+            [item.context["table_parallel_value_part"] for item in measurements],
+            ["Around 125km", "Around 100km"],
+        )
+        self.assertEqual(
+            [item.context["table_parallel_position"] for item in measurements],
+            [1, 2],
+        )
+        self.assertTrue(
+            all(
+                item.context["table_parallel_alignment"] == "positional_candidate"
+                for item in measurements
+            )
+        )
+
+    def test_compact_slash_expression_is_not_claimed_as_parallel_configuration(self):
+        observations = self.observations(
+            "100-120V/200-240V",
+            property_label="Input Voltage",
+            section="Charger",
+        )
+        measurements = [
+            item for item in observations
+            if item.kind == "measurement"
+        ]
+        self.assertTrue(measurements)
+        self.assertTrue(
+            all(
+                "table_parallel_alignment" not in item.context
+                for item in measurements
+            )
+        )
+
     def test_numeric_header_does_not_block_inherited_value_unit(self):
         measurements = [
             x for x in self.observations(
