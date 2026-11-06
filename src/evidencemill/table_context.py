@@ -134,6 +134,17 @@ def parse_table(
 
     if header_rows is None:
         header_rows = 0 if layout == "key_value" else 1
+    # PDF table detection can split a continuing specification table into a
+    # headerless fragment. A property and a numeric value in its first row
+    # are data, not a new column-header declaration.
+    if (
+        layout == "matrix" and header_rows == 1 and len(normalized[0]) == 3
+        and normalized[0][1] and normalized[0][2]
+        and not re.search(r"\\d", normalized[0][1])
+        and re.search(r"\\d\\s*(?:V|A|Ah|Wh|W|kg|km|mm|in|psi|%)\\b", normalized[0][2], re.I)
+        and not _headerish(normalized[0][2])
+    ):
+        header_rows = 0
     if header_rows < 0:
         raise ValueError("header_rows cannot be negative")
 
@@ -213,10 +224,14 @@ def parse_table(
 
     out: list[EvidenceObservation] = []
     grouped_properties = (
-        width == 3 and header_rows == 1 and row_header_columns == 1
-        and normalized[0][0] == ""
-        and normalized[0][1].casefold() in {"item", "property"}
-        and normalized[0][2].casefold() in {"parameter", "value"}
+        width == 3 and row_header_columns == 1
+        and (
+            (header_rows == 1 and normalized[0][0] == ""
+             and normalized[0][1].casefold() in {"item", "property"}
+             and normalized[0][2].casefold() in {"parameter", "value"})
+            or (header_rows == 0 and bool(normalized[0][1])
+                and bool(re.search(r"\\d", normalized[0][2])))
+        )
     )
     section = None
     for row_index in range(header_rows, len(normalized)):
