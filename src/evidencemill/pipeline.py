@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 import re
 
@@ -7,7 +8,7 @@ from evidencemill.cross_reference import resolve_cross_references
 from evidencemill.document import Document, FigureBlock, TableBlock, TextBlock
 from evidencemill.illustration import associate_callouts
 from evidencemill.models import EvidenceObservation, SourceRef
-from evidencemill.sentence_structure import analyze_statement, requires_scoped_review
+from evidencemill.sentence_structure import _tokens, analyze_statement, requires_scoped_review
 from evidencemill.table_context import parse_table
 
 
@@ -101,11 +102,27 @@ def _table_observations(document: Document, block: TableBlock) -> list[EvidenceO
         value_text = str(cell.value).strip()
         statement = f"{label_text}: {value_text}" if label_text else value_text
 
+        # Labels supply semantic context, but only numbers originating in this
+        # value cell may become its measurements. Numeric model/spec headers
+        # remain in the original statement and cell context as source evidence.
+        value_start = len(label_text) + 2 if label_text else 0
         structure = analyze_statement(statement)
-        if not structure.measurements and cell.unit:
-            structure = analyze_statement(f"{statement} {cell.unit}")
+        tokens = _tokens(statement)
+        measurements = tuple(
+            item for item in structure.measurements
+            if tokens[item.token_index].start >= value_start
+        )
+        if not measurements and cell.unit:
+            unit_statement = f"{statement} {cell.unit}"
+            structure = analyze_statement(unit_statement)
+            tokens = _tokens(unit_statement)
+            measurements = tuple(
+                item for item in structure.measurements
+                if tokens[item.token_index].start >= value_start
+            )
 
-        for measurement_index, measurement in enumerate(structure.measurements, start=1):
+        structure = replace(structure, measurements=measurements)
+        for measurement_index, measurement in enumerate(measurements, start=1):
             out.append(EvidenceObservation(
                 kind="measurement",
                 source=SourceRef(
