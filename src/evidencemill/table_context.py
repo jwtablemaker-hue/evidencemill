@@ -214,9 +214,9 @@ def parse_table(
     out: list[EvidenceObservation] = []
     grouped_properties = (
         width == 3 and header_rows == 1 and row_header_columns == 1
-        and normalized[0][0] == ""
-        and normalized[0][1].casefold() in {"item", "property"}
-        and normalized[0][2].casefold() in {"parameter", "value"}
+        and normalized[0][0].casefold() in {"", "section", "category", "group"}
+        and normalized[0][1].casefold() in {"item", "property", "specification", "spec"}
+        and bool(normalized[0][2])
     )
     section = None
     for row_index in range(header_rows, len(normalized)):
@@ -228,6 +228,9 @@ def parse_table(
             section = row_header
 
         for col in range(row_header_columns, width):
+            if grouped_properties and col == 1:
+                # Column 2 is the per-row property label, not a value cell.
+                continue
             value = row[col]
             if not value:
                 continue
@@ -241,7 +244,7 @@ def parse_table(
                 column_header=column_header,
                 value=value,
                 inherited_unit=unit,
-                table_layout="matrix",
+                table_layout="grouped_properties" if grouped_properties and row_property else "matrix",
                 notes=_value_caveats(value),
             )
             out.append(EvidenceObservation(
@@ -261,8 +264,9 @@ def parse_table(
                     "row_header": context.row_header,
                     "column_header": context.column_header,
                     "table_subject": table_subject,
-                    "table_layout": "matrix",
+                    "table_layout": context.table_layout,
                     **({"section_heading": section} if row_property else {}),
+                    **({"value_column_header": column_header} if row_property and column_header else {}),
                     "source_caveats": list(context.notes),
                 },
                 ambiguous=not bool(row_header or column_header),

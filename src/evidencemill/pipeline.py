@@ -150,6 +150,7 @@ def _table_observations(document: Document, block: TableBlock) -> list[EvidenceO
                     "table_subject": cell.subject_hint,
                     "table_section": context.get("section_heading"),
                     "table_layout": context.get("table_layout"),
+                    "table_value_header": context.get("value_column_header"),
                     "table_cell_location": cell.source.location,
                     "source_caveats": context.get("source_caveats", []),
                 },
