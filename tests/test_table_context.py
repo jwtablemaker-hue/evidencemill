@@ -34,6 +34,11 @@ class TableContextTests(unittest.TestCase):
         self.assertEqual(capacity.context["row_index"], 0)
         self.assertEqual(capacity.subject_hint, None)
 
+    def test_explicit_header_override_is_not_reinterpreted(self):
+        rows = [["", "Battery capacity", "72V 35Ah"], ["", "Motor", "2500W"]]
+        cells = parse_table(rows, source_id="manual", header_rows=1)
+        self.assertFalse(any(c.value == "72V 35Ah" for c in cells))
+
     def test_matrix_with_numeric_model_header_stays_headered(self):
         rows = [
             ["Model", "Rated power (W)", "Peak power (W)"],
