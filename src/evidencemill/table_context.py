@@ -126,6 +126,19 @@ def parse_table(
     if not normalized:
         return []
 
+    # A merged group column leaves blank continuation cells. Require that
+    # structure and a unit-bearing first value before treating row one as data.
+    first = normalized[0]
+    headerless_group = (
+        layout == "auto" and header_rows is None and row_header_columns == 1
+        and len(first) == 3 and bool(first[1])
+        and first[1].casefold() not in {"item", "property", "specification", "spec"}
+        and bool(re.match(r"^\s*[+-]?\d+(?:[.,]\d+)?\s*(?:Ah|Wh|kW|mm|kg|psi|km|V|A|W|%)(?=\b|\d)", first[2], re.I))
+        and not _headerish(first[2])
+        and any(not group and prop and value for group, prop, value in normalized[1:])
+    )
+    if headerless_group:
+        layout, header_rows = "matrix", 0
     if layout == "auto":
         inferred_layout, inferred_headers = infer_table_layout(normalized)
         layout = inferred_layout
@@ -212,13 +225,14 @@ def parse_table(
             column_units[col] = unit
 
     out: list[EvidenceObservation] = []
-    grouped_properties = (
+    grouped_properties = headerless_group or (
         width == 3 and header_rows == 1 and row_header_columns == 1
         and normalized[0][0].casefold() in {"", "section", "category", "group"}
         and normalized[0][1].casefold() in {"item", "property", "specification", "spec"}
         and bool(normalized[0][2])
     )
     section = None
+    parallel_header = None
     for row_index in range(header_rows, len(normalized)):
         row = normalized[row_index]
         row_header_parts = [row[c] for c in range(min(row_header_columns, width)) if row[c]]
@@ -226,6 +240,7 @@ def parse_table(
 
         if grouped_properties and row_header:
             section = row_header
+            parallel_header = None
 
         for col in range(row_header_columns, width):
             if grouped_properties and col == 1:
@@ -267,8 +282,11 @@ def parse_table(
                     "table_layout": context.table_layout,
                     **({"section_heading": section} if row_property else {}),
                     **({"value_column_header": column_header} if row_property and column_header else {}),
+                    **({"value_column_header": parallel_header} if row_property and parallel_header else {}),
                     "source_caveats": list(context.notes),
                 },
-                ambiguous=not bool(row_header or column_header),
+                ambiguous=not bool(row_property or row_header or column_header),
             ))
+        if headerless_group and row_index == 0 and re.search(r"\s+/\s+", row[2]):
+            parallel_header = row[2]
     return out

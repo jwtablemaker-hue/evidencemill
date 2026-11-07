@@ -501,6 +501,9 @@ def _direct_service_instructions(
 
     if index >= len(tokens):
         return []
+    # A component label can start with a word that also names an action.
+    if [token.norm for token in tokens[index:]] in (["turn", "signal"], ["turn", "signals"]):
+        return []
     first_action = _SERVICE_ACTIONS.get(tokens[index].norm)
     if first_action is None:
         return []

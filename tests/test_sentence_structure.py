@@ -4,6 +4,10 @@ from evidencemill.sentence_structure import analyze_statement
 
 
 class SentenceStructureTests(unittest.TestCase):
+    def test_turn_signal_label_is_not_a_service_step(self):
+        self.assertFalse(analyze_statement("Turn signal").service_instructions)
+        self.assertTrue(analyze_statement("Turn the wheel.").service_instructions)
+
     def test_dual_motor_and_combined_peak(self):
         result = analyze_statement(
             "The scooter uses dual 500 W motors with a combined peak output of 2400 W."

@@ -20,6 +20,35 @@ class TableContextTests(unittest.TestCase):
         self.assertEqual(first.unit, "W")
         self.assertFalse(first.ambiguous)
 
+    def test_headerless_continuation_keeps_battery_capacity_first_row(self):
+        rows = [
+            ["", "Battery capacity", "72V 35Ah"],
+            ["", "Motor power", "2500W*2"],
+            ["", "Tire pressure", "50 psi"],
+        ]
+        cells = parse_table(rows, source_id="manual", location="page-6:table-47")
+        capacity = next(c for c in cells if c.property_hint == "Battery capacity")
+        self.assertEqual(capacity.value, "72V 35Ah")
+        self.assertEqual(capacity.source.location, "page-6:table-47:r1c3")
+        self.assertEqual(capacity.source.raw_text, "Battery capacity: 72V 35Ah")
+        self.assertEqual(capacity.context["row_index"], 0)
+        self.assertEqual(capacity.subject_hint, None)
+
+    def test_explicit_header_override_is_not_reinterpreted(self):
+        rows = [["", "Battery capacity", "72V 35Ah"], ["", "Motor", "2500W"]]
+        cells = parse_table(rows, source_id="manual", header_rows=1)
+        self.assertFalse(any(c.value == "72V 35Ah" for c in cells))
+
+    def test_matrix_with_numeric_model_header_stays_headered(self):
+        rows = [
+            ["Model", "Rated power (W)", "Peak power (W)"],
+            ["Base", "500", "1000"],
+        ]
+        cells = parse_table(rows, source_id="manual")
+        self.assertEqual(len(cells), 2)
+        self.assertEqual(cells[0].property_hint, "Rated power")
+        self.assertEqual(cells[0].value, "500")
+
     def test_grouped_item_parameter_preserves_value_cell_and_section(self):
 
         rows = [["", "Item", "Parameter"], ["Product", "Model", "ED2301"],
