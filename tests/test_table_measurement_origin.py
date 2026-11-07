@@ -19,6 +19,18 @@ class TableMeasurementOriginTests(unittest.TestCase):
             ), header_rows=1, layout="matrix"),
         )))
 
+    def no_header_observations(self):
+        return process_document(Document(source_id="retained-manual", blocks=(
+            TableBlock(block_id="table-47", page=6, rows=(
+                ("Battery", "Battery Capacity", "72V40Ah(LG M50LT) / 72V32Ah(CN 21700)"),
+                ("", "Range", "Around 125km / Around 100km"),
+                ("", "Duration of Charging", "28hr / 23hr"),
+                ("", "Charging Ambient Temperature", "0 to 40°C"),
+                ("Motor", "Motor Type", "BLDC Hub Motor"),
+                ("", "Nominal Power", "2500W*2"),
+            ), header_rows=None, layout="auto"),
+        )))
+
     def test_configuration_header_is_context_not_property(self):
         observations = self.observations("Rubber")
         self.assertEqual([x for x in observations if x.kind == "measurement"], [])
@@ -94,6 +106,56 @@ class TableMeasurementOriginTests(unittest.TestCase):
                 for item in measurements
             )
         )
+
+    def test_no_header_group_preserves_capacity_and_aligns_parallel_rows(self):
+        observations = self.no_header_observations()
+        cells = [item for item in observations if item.kind == "table_cell"]
+        self.assertEqual(cells[0].property_hint, "Battery Capacity")
+        self.assertEqual(
+            cells[0].value,
+            "72V40Ah(LG M50LT) / 72V32Ah(CN 21700)",
+        )
+        self.assertEqual(cells[0].source.location, "page-6:table-47:r1c3")
+
+        range_measurements = [
+            item for item in observations
+            if item.kind == "measurement"
+            and item.context.get("table_property") == "Range"
+        ]
+        self.assertEqual(
+            [(item.value, item.unit) for item in range_measurements],
+            [(125.0, "km"), (100.0, "km")],
+        )
+        self.assertEqual(
+            [
+                item.context["table_parallel_header_part"]
+                for item in range_measurements
+            ],
+            ["72V40Ah(LG M50LT)", "72V32Ah(CN 21700)"],
+        )
+        self.assertEqual(
+            [
+                item.context["table_parallel_position"]
+                for item in range_measurements
+            ],
+            [1, 2],
+        )
+        self.assertTrue(all(
+            item.context["table_section_anchor_property"] == "Battery Capacity"
+            for item in range_measurements
+        ))
+
+        nominal = [
+            item for item in observations
+            if item.kind == "measurement"
+            and item.context.get("table_property") == "Nominal Power"
+        ]
+        self.assertEqual(len(nominal), 1)
+        self.assertEqual(
+            (nominal[0].value, nominal[0].unit, nominal[0].multiplicity),
+            (2500.0, "W", 2),
+        )
+        self.assertNotIn("table_parallel_alignment", nominal[0].context)
 
     def test_compact_slash_expression_is_not_claimed_as_parallel_configuration(self):
         observations = self.observations(
