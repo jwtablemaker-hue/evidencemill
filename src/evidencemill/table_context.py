@@ -72,6 +72,43 @@ def _headerish(text: str) -> bool:
     return bool(words & _HEADER_WORDS)
 
 
+def _explicit_grouped_header(rows: Sequence[Sequence[str]]) -> bool:
+    if not rows or len(rows[0]) != 3:
+        return False
+    first = rows[0]
+    return (
+        first[0].casefold() in {"", "section", "category", "group"}
+        and first[1].casefold() in {"item", "property", "specification", "spec"}
+        and bool(first[2])
+    )
+
+
+def _grouped_properties_without_header(rows: Sequence[Sequence[str]]) -> bool:
+    """Detect section/property/value tables whose first row is actual data.
+
+    Retained manuals often use merged section cells, so later rows have an empty
+    first column while property and value remain populated. This structural
+    pattern is distinct from a conventional matrix header row.
+    """
+    if len(rows) < 3 or len(rows[0]) != 3 or _explicit_grouped_header(rows):
+        return False
+
+    paired = [row for row in rows if row[1] and row[2]]
+    if len(paired) < 3:
+        return False
+
+    section_rows = sum(bool(row[0]) for row in paired)
+    continuation_rows = sum(not row[0] for row in paired)
+    if section_rows < 1 or continuation_rows < 2:
+        return False
+
+    first = paired[0]
+    if _headerish(first[0]) and _headerish(first[1]) and _headerish(first[2]):
+        return False
+
+    return continuation_rows >= section_rows
+
+
 def infer_table_layout(rows: Sequence[Sequence[object]]) -> tuple[str, int]:
     """Infer only the broad table shape needed for context binding."""
     normalized = _normalize_rows(rows)
@@ -136,6 +173,14 @@ def parse_table(
         header_rows = 0 if layout == "key_value" else 1
     if header_rows < 0:
         raise ValueError("header_rows cannot be negative")
+
+    implicit_grouped_properties = (
+        layout == "matrix"
+        and header_rows == 1
+        and _grouped_properties_without_header(normalized)
+    )
+    if implicit_grouped_properties:
+        header_rows = 0
 
     width = len(normalized[0])
     if width == 0:
@@ -213,12 +258,16 @@ def parse_table(
 
     out: list[EvidenceObservation] = []
     grouped_properties = (
-        width == 3 and header_rows == 1 and row_header_columns == 1
-        and normalized[0][0].casefold() in {"", "section", "category", "group"}
-        and normalized[0][1].casefold() in {"item", "property", "specification", "spec"}
-        and bool(normalized[0][2])
+        width == 3
+        and row_header_columns == 1
+        and (
+            (header_rows == 1 and _explicit_grouped_header(normalized))
+            or implicit_grouped_properties
+        )
     )
     section = None
+    section_anchor_property = None
+    section_anchor_value = None
     for row_index in range(header_rows, len(normalized)):
         row = normalized[row_index]
         row_header_parts = [row[c] for c in range(min(row_header_columns, width)) if row[c]]
@@ -226,6 +275,8 @@ def parse_table(
 
         if grouped_properties and row_header:
             section = row_header
+            section_anchor_property = row[1] or None
+            section_anchor_value = row[2] or None
 
         for col in range(row_header_columns, width):
             if grouped_properties and col == 1:
@@ -266,6 +317,8 @@ def parse_table(
                     "table_subject": table_subject,
                     "table_layout": context.table_layout,
                     **({"section_heading": section} if row_property else {}),
+                    **({"section_anchor_property": section_anchor_property} if row_property and section_anchor_property else {}),
+                    **({"section_anchor_value": section_anchor_value} if row_property and section_anchor_value else {}),
                     **({"value_column_header": column_header} if row_property and column_header else {}),
                     "source_caveats": list(context.notes),
                 },
