@@ -149,8 +149,12 @@ def _table_observations(document: Document, block: TableBlock) -> list[EvidenceO
             )
 
         structure = replace(structure, measurements=measurements)
+        parallel_reference = (
+            context.get("value_column_header")
+            or context.get("section_anchor_value")
+        )
         parallel = _parallel_table_alternatives(
-            context.get("value_column_header"),
+            parallel_reference,
             value_text,
         )
         for measurement_index, measurement in enumerate(measurements, start=1):
@@ -171,6 +175,8 @@ def _table_observations(document: Document, block: TableBlock) -> list[EvidenceO
                 "table_section": context.get("section_heading"),
                 "table_layout": context.get("table_layout"),
                 "table_value_header": context.get("value_column_header"),
+                "table_section_anchor_property": context.get("section_anchor_property"),
+                "table_section_anchor_value": context.get("section_anchor_value"),
                 "table_cell_location": cell.source.location,
                 "source_caveats": context.get("source_caveats", []),
             }
