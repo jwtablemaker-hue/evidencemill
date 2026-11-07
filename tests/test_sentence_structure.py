@@ -130,6 +130,19 @@ class SentenceStructureTests(unittest.TestCase):
 
 
 
+    def test_approximate_abbreviation_without_space_keeps_measurement(self):
+        for text, value in (
+            ("Wheelbase: Approx.970mm", 970.0),
+            ("Ground Clearance: Approx.180mm", 180.0),
+            ("Wheelbase: Approximately.970mm", 970.0),
+        ):
+            with self.subTest(text=text):
+                result = analyze_statement(text)
+                self.assertEqual(len(result.measurements), 1)
+                measurement = result.measurements[0]
+                self.assertEqual((measurement.value, measurement.unit), (value, "mm"))
+                self.assertIn("approximate", measurement.qualifiers)
+
     def test_mode_labels_and_upper_bounds_are_preserved(self):
         result = analyze_statement(
             "Speed: L1: <= 6km/h | L2: <= 20km/h | L3: <= 25km/h"
