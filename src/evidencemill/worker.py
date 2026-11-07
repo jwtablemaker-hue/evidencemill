@@ -329,8 +329,11 @@ def _plain_cleaning_guidance(observation: EvidenceObservation) -> bool:
 def _candidate_from_statement(observation: EvidenceObservation) -> FactCandidate:
     # Statements remain explicit review items, including those with measurements:
     # successful scalar extraction does not account for all sentence meaning.
-    prose_only = _plain_cleaning_guidance(observation)
+    layout_review = bool(observation.context.get("ocr_layout_review"))
+    prose_only = not layout_review and _plain_cleaning_guidance(observation)
     reason = None if prose_only else "statement_semantic_interpretation_required"
+    if layout_review:
+        reason = "ocr_reading_order_requires_review"
     context = dict(observation.context)
     if prose_only:
         context["routing"] = "searchable_maintenance_prose"

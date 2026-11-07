@@ -41,6 +41,14 @@ def _location(block, suffix: str | None = None) -> str:
 
 def _text_observations(document: Document, block: TextBlock) -> list[EvidenceObservation]:
     out = []
+    if block.kind == "ocr_layout_review":
+        # The recovered region can cross columns. Retain its text and location
+        # together until reading order can be checked against the source page.
+        return [EvidenceObservation(
+            kind="statement", source=SourceRef(document.source_id, _location(block), block.text),
+            value=block.text, ambiguous=True,
+            context={"block_id": block.block_id, "bbox": block.bbox, "ocr_layout_review": True},
+        )]
     if block.kind == "heading":
         out.append(EvidenceObservation(kind="heading", source=SourceRef(document.source_id, _location(block), block.text), value=block.text, context={"heading_path": list(block.heading_path)}))
         return out
