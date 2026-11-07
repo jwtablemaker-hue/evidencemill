@@ -8,7 +8,10 @@ from typing import Iterable
 _NUMBER_FULL_RE = re.compile(r"[+-]?\d+(?:\.\d+)?")
 
 _TOKEN_RE = re.compile(
-    r"(?<![A-Za-z0-9.])[+-]?\d+(?:\.\d+)?"
+    r"(?<=approx\.)[+-]?\d+(?:\.\d+)?"
+    r"|(?<=approximately\.)[+-]?\d+(?:\.\d+)?"
+    r"|(?<=approximate\.)[+-]?\d+(?:\.\d+)?"
+    r"|(?<![A-Za-z0-9.])[+-]?\d+(?:\.\d+)?"
     r"|(?<![A-Za-z])(?:km/h|kph|mph|km|mi|ft|kpa|psi|bar|wh|ah|kw|mm|cm|kg|lbs?|"
     r"inches?|inch|hours?|hrs?|hr|minutes?|mins?|min|seconds?|secs?|sec|"
     r"days?|weeks?|months?|years?|deg|degrees?|degree|°c|°f)(?![A-Za-z])"
