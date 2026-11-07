@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 try:
@@ -61,6 +62,21 @@ class PdfOcrTests(unittest.TestCase):
         document, calls = self.parse(native, OCR)
         self.assertEqual(calls, 0)
         self.assertEqual(self.text(document), native)
+
+    def test_broken_native_character_map_retries_ocr_and_preserves_source(self):
+        native = "Assembly " + "\x01\x02A" * 40
+        item = (10, 10, 250, 40, native, 0, 0)
+        tables = SimpleNamespace(tables=[])
+        with patch.object(fitz.Page, "get_text", return_value=[item]):
+            document, calls = self.parse("", OCR, tables=tables)
+        self.assertEqual(calls, 1)
+        self.assertIn("Rated capacity 5.2Ah", self.text(document))
+        self.assertIn(native, self.text(document))
+        candidates = FactPrepWorker().run_document(document).candidates
+        recovered = [c for c in candidates if c.context.get("ocr_layout_review")]
+        self.assertEqual(len(recovered), 1)
+        self.assertEqual(recovered[0].review_reason, "ocr_reading_order_requires_review")
+        self.assertNotIn("service_instruction", recovered[0].conditions)
 
     def test_unhelpful_ocr_keeps_native_blocks(self):
         for ocr in ("", "ES1", "Specifications", "X" * 40):
@@ -131,7 +147,6 @@ class PdfOcrTests(unittest.TestCase):
         self.assertEqual(self.text(document), "ES1")
 
     def test_meaningful_table_suppresses_ocr(self):
-        from types import SimpleNamespace
         table = SimpleNamespace(extract=lambda: [["Power", "30 W"]], bbox=None)
         document, calls = self.parse("ES1", OCR, tables=SimpleNamespace(tables=[table]))
         self.assertEqual(calls, 0)
@@ -188,7 +203,6 @@ class PdfOcrTests(unittest.TestCase):
         self.assertEqual(self.text(document).count("ES1"), 1)
 
     def test_one_line_ocr_block_splits_only_at_anomalous_word_gap(self):
-        from types import SimpleNamespace
 
         words = ["Open", "the", "rubber", "cover", "Insert", "the", "charger", "plug", "in"]
         widths = [50, 30, 60, 50, 60, 30, 70, 40, 20]
@@ -216,7 +230,6 @@ class PdfOcrTests(unittest.TestCase):
         )
 
     def test_large_gap_in_multiline_block_is_not_forced_to_split(self):
-        from types import SimpleNamespace
 
         data = {
             "text": ["A", "wide", "gap", "here", "wrapped", "line"],

@@ -215,12 +215,17 @@ def parse_pdf(path: str | Path, *, source_id: str | None = None, ocr_scanned: bo
                 detected_tables.append((rows, _bbox(getattr(table, "bbox", None))))
 
         raw_blocks = page.get_text("blocks", sort=True)
-        native_count = len("".join("".join(str(item[4]).split()) for item in raw_blocks))
+        native_text = "".join("".join(str(item[4]).split()) for item in raw_blocks)
+        native_count = len(native_text)
+        # PDFs with broken character maps may contain many glyphs but little
+        # readable text. Keep their native lines as evidence below.
+        controls = sum(not char.isprintable() for char in native_text)
+        corrupt_text = controls >= 8 and controls * 4 >= native_count
         meaningful_tables = any(
             str(cell).strip() for rows, _ in detected_tables
             for row in rows for cell in row if cell is not None
         )
-        if native_count <= 32 and not meaningful_tables and ocr_scanned:
+        if (native_count <= 32 or corrupt_text) and not meaningful_tables and ocr_scanned:
             try:
                 from PIL import Image
                 import pytesseract
@@ -240,7 +245,8 @@ def parse_pdf(path: str | Path, *, source_id: str | None = None, ocr_scanned: bo
             ocr_count = sum(len("".join(text.split())) for _, text in region_texts)
             # Keep the existing textless-page fallback, even for a short OCR result.
             richer = ocr_count >= native_count + 32 and ocr_count >= 2 * native_count
-            if ocr_count and (native_count == 0 or richer):
+            readable_replacement = corrupt_text and ocr_count >= max(32, native_count - controls)
+            if ocr_count and (native_count == 0 or richer or readable_replacement):
                 for (x0, y0, x1, y1), text in region_texts:
                     if not text:
                         continue
@@ -248,7 +254,7 @@ def parse_pdf(path: str | Path, *, source_id: str | None = None, ocr_scanned: bo
                     blocks.append(TextBlock(
                         text=text,
                         block_id=f"text-{counter}",
-                        kind="ocr_paragraph",
+                        kind="ocr_layout_review" if corrupt_text else "ocr_paragraph",
                         page=page_no,
                         bbox=(
                             x0 * page.rect.width / pix.width,
