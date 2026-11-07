@@ -4,6 +4,10 @@ from evidencemill.sentence_structure import analyze_statement
 
 
 class SentenceStructureTests(unittest.TestCase):
+    def test_turn_signal_label_is_not_a_service_step(self):
+        self.assertFalse(analyze_statement("Turn signal").service_instructions)
+        self.assertTrue(analyze_statement("Turn the wheel.").service_instructions)
+
     def test_dual_motor_and_combined_peak(self):
         result = analyze_statement(
             "The scooter uses dual 500 W motors with a combined peak output of 2400 W."
@@ -22,6 +26,29 @@ class SentenceStructureTests(unittest.TestCase):
         )
         self.assertIn("peak", combined_peak.qualifiers)
         self.assertIn("combined", combined_peak.qualifiers)
+
+    def test_value_suffix_multiplier_marks_each_repeated_component(self):
+        for text in (
+            "Motor nominal power: 2500W*2.",
+            "Motor nominal power: 2500 W × 2.",
+            "Motor nominal power: 2500 W x2.",
+        ):
+            with self.subTest(text=text):
+                result = analyze_statement(text)
+                self.assertEqual(len(result.measurements), 1)
+                measurement = result.measurements[0]
+                self.assertEqual(measurement.value, 2500.0)
+                self.assertEqual(measurement.unit, "W")
+                self.assertEqual(measurement.component_kind, "motor")
+                self.assertEqual(measurement.scope, "each")
+                self.assertEqual(measurement.multiplicity, 2)
+                self.assertTrue(measurement.text.endswith((" *2", "*2", " × 2", " x2")))
+
+    def test_unmultiplied_component_value_keeps_single_occurrence_unspecified(self):
+        result = analyze_statement("Motor nominal power: 2500W.")
+        measurement = result.measurements[0]
+        self.assertEqual(measurement.scope, "component")
+        self.assertIsNone(measurement.multiplicity)
 
     def test_alphanumeric_parameter_does_not_become_duration(self):
         result = analyze_statement("P04 hour/minute contradiction remains unresolved.")
@@ -106,6 +133,19 @@ class SentenceStructureTests(unittest.TestCase):
         self.assertIn("approximate", approximate.measurements[0].qualifiers)
 
 
+
+    def test_approximate_abbreviation_without_space_keeps_measurement(self):
+        for text, value in (
+            ("Wheelbase: Approx.970mm", 970.0),
+            ("Ground Clearance: Approx.180mm", 180.0),
+            ("Wheelbase: Approximately.970mm", 970.0),
+        ):
+            with self.subTest(text=text):
+                result = analyze_statement(text)
+                self.assertEqual(len(result.measurements), 1)
+                measurement = result.measurements[0]
+                self.assertEqual((measurement.value, measurement.unit), (value, "mm"))
+                self.assertIn("approximate", measurement.qualifiers)
 
     def test_mode_labels_and_upper_bounds_are_preserved(self):
         result = analyze_statement(

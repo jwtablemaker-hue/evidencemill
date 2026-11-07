@@ -8,7 +8,10 @@ from typing import Iterable
 _NUMBER_FULL_RE = re.compile(r"[+-]?\d+(?:\.\d+)?")
 
 _TOKEN_RE = re.compile(
-    r"(?<![A-Za-z0-9.])[+-]?\d+(?:\.\d+)?"
+    r"(?<=approx\.)[+-]?\d+(?:\.\d+)?"
+    r"|(?<=approximately\.)[+-]?\d+(?:\.\d+)?"
+    r"|(?<=approximate\.)[+-]?\d+(?:\.\d+)?"
+    r"|(?<![A-Za-z0-9.])[+-]?\d+(?:\.\d+)?"
     r"|(?<![A-Za-z])(?:km/h|kph|mph|km|mi|ft|kpa|psi|bar|wh|ah|kw|mm|cm|kg|lbs?|"
     r"inches?|inch|hours?|hrs?|hr|minutes?|mins?|min|seconds?|secs?|sec|"
     r"days?|weeks?|months?|years?|deg|degrees?|degree|°c|°f)(?![A-Za-z])"
@@ -282,6 +285,17 @@ def _multiplicity(words: list[str], index: int) -> int | None:
     return None
 
 
+def _value_suffix_multiplicity(text: str, unit_end: int) -> tuple[int | None, int]:
+    """Preserve source forms such as 2500W*2 or 500 W × 2 as repeated units."""
+    match = re.match(r"\s*(?:\*|x|×)\s*(\d+)\b", text[unit_end:], re.I)
+    if not match:
+        return None, unit_end
+    count = int(match.group(1))
+    if count <= 1:
+        return None, unit_end
+    return count, unit_end + match.end()
+
+
 def _local_measurement_context(
     text: str,
     number_start: int,
@@ -487,6 +501,9 @@ def _direct_service_instructions(
 
     if index >= len(tokens):
         return []
+    # A component label can start with a word that also names an action.
+    if [token.norm for token in tokens[index:]] in (["turn", "signal"], ["turn", "signals"]):
+        return []
     first_action = _SERVICE_ACTIONS.get(tokens[index].norm)
     if first_action is None:
         return []
@@ -628,6 +645,15 @@ def analyze_statement(text: str) -> StatementStructure:
         value_start = number.start
         value_end = unit_token.end
         tolerance: float | None = None
+
+        suffix_multiplicity, suffix_end = _value_suffix_multiplicity(
+            text, unit_token.end
+        )
+        if suffix_multiplicity is not None:
+            multiplicity = suffix_multiplicity
+            value_end = suffix_end
+            if nearest is not None and scope != "system":
+                scope = "each"
 
         if (
             index >= 4
