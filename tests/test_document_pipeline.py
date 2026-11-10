@@ -159,6 +159,27 @@ class DocumentPipelineTests(unittest.TestCase):
         )
         self.assertEqual(pro.context["applicable_models"], ["X7PRO"])
 
+    def test_invalid_declared_exception_is_explicitly_held(self):
+        doc = Document(
+            source_id="manual",
+            metadata={
+                "covered_models": ["Alpha", "Beta"],
+                "model_scopes": {"controls": ["Gamma"]},
+            },
+            blocks=(
+                TextBlock(
+                    text="Use the controls.",
+                    block_id="controls", heading_path=("controls",),
+                ),
+            ),
+        )
+        candidate = FactPrepWorker().run_document(doc).candidates[0]
+        self.assertEqual(
+            candidate.context["applicability_unresolved"],
+            "invalid_explicit_model_scope",
+        )
+        self.assertNotIn("applicable_models", candidate.context)
+
     def test_text_to_measurements(self):
         doc = parse_text(
             "# Drive\nThe scooter uses dual 500 W motors with a combined peak output of 2400 W.",
