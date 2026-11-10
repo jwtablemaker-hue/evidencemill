@@ -60,10 +60,20 @@ class DocumentPipelineTests(unittest.TestCase):
             self.assertGreaterEqual(len(result[0].context["applicable_models"]), 2)
             self.assertEqual(result[0].context["applicability_basis"], "explicit_model_enumeration")
 
-    def test_does_not_infer_from_ambiguous_title(self):
+    def test_discovers_multi_model_manual_title(self):
         doc = Document(
             source_id="manual",
             title="X7/X7PRO User Manual",
+            blocks=(TextBlock(text="Inspect the brake.", block_id="p1"),),
+        )
+        result = process_document(doc)[0]
+        self.assertEqual(result.context["applicable_models"], ["X7", "X7PRO"])
+        self.assertEqual(result.context["applicability_basis"], "manual_title_coverage")
+
+    def test_does_not_infer_from_ambiguous_title(self):
+        doc = Document(
+            source_id="manual",
+            title="X7/X7PRO parts discussion",
             blocks=(TextBlock(text="Inspect the brake.", block_id="p1"),),
         )
         self.assertNotIn("applicable_models", process_document(doc)[0].context)
