@@ -100,25 +100,6 @@ def infer_table_layout(rows: Sequence[Sequence[object]]) -> tuple[str, int]:
     return "matrix", 1
 
 
-def _shared_model_scope(table_subject: str | None) -> tuple[str, ...]:
-    """Recognize explicit model lists, not arbitrary slash-separated headings."""
-    if not table_subject:
-        return ()
-    match = re.fullmatch(
-        r"\s*([A-Za-z][A-Za-z0-9-]*)\s*/\s*([A-Za-z][A-Za-z0-9-]*)\s*",
-        table_subject,
-    )
-    if not match:
-        return ()
-    left, right = match.groups()
-    # Only expand a common stem with an explicit model suffix; a generic
-    # 'battery/motor' heading is not evidence of two machine identities.
-    stem = re.match(r"^([A-Za-z]+)(?=\d)", left)
-    if not stem or not right.casefold().startswith(stem.group(1).casefold()):
-        return ()
-    return (left, right)
-
-
 def parse_table(
     rows: Sequence[Sequence[object]],
     *,
@@ -144,7 +125,6 @@ def parse_table(
     normalized = _normalize_rows(rows)
     if not normalized:
         return []
-    shared_models = _shared_model_scope(table_subject)
 
     # A merged group column leaves blank continuation cells. Require that
     # structure and a unit-bearing first value before treating row one as data.
@@ -225,7 +205,6 @@ def parse_table(
                     "column_header": None,
                     "section_heading": section_heading,
                     "table_subject": table_subject,
-                    **({"applicable_models": list(shared_models), "applicability_basis": "explicit_shared_table_heading"} if shared_models else {}),
                     "table_layout": "key_value",
                     "source_caveats": list(context.notes),
                 },
@@ -300,7 +279,6 @@ def parse_table(
                     "row_header": context.row_header,
                     "column_header": context.column_header,
                     "table_subject": table_subject,
-                    **({"applicable_models": list(shared_models), "applicability_basis": "explicit_shared_table_heading"} if shared_models else {}),
                     "table_layout": context.table_layout,
                     **({"section_heading": section} if row_property else {}),
                     **({"value_column_header": column_header} if row_property and column_header else {}),
