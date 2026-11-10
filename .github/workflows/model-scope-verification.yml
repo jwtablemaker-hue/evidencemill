@@ -1,4 +1,4 @@
-name: Temporary model-scope verification
+name: EvidenceMill model-scope verification
 on:
   pull_request:
     paths:
