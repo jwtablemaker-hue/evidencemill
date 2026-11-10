@@ -1,10 +1,54 @@
 import unittest
 
+from evidencemill.document import Document, TableBlock, TextBlock
 from evidencemill.ingest.text import parse_text
 from evidencemill.pipeline import process_document, split_sentences
 
 
 class DocumentPipelineTests(unittest.TestCase):
+    def test_shared_scope_and_model_specific_exception(self):
+        doc = Document(
+            source_id="multi-model",
+            metadata={
+                "covered_models": ["X7", "X7PRO"],
+                "model_scopes": {"X7PRO controls": ["X7PRO"]},
+            },
+            blocks=(
+                TableBlock(
+                    rows=(("Battery", "48 V"), ("Capacity", "21 Ah")),
+                    block_id="shared", layout="key_value",
+                ),
+                TextBlock(
+                    text="NFC unlocking is supported.",
+                    block_id="pro", heading_path=("X7PRO controls",),
+                ),
+            ),
+        )
+        observations = process_document(doc)
+        shared = [x for x in observations if x.kind == "table_cell"]
+        self.assertEqual(len(shared), 2)
+        self.assertTrue(all(x.context["applicable_models"] == ["X7", "X7PRO"] for x in shared))
+        self.assertTrue(all(x.context["applicability_basis"] == "document_coverage" for x in shared))
+        pro = next(x for x in observations if x.kind == "statement")
+        self.assertEqual(pro.context["applicable_models"], ["X7PRO"])
+        self.assertEqual(pro.context["applicability_basis"], "explicit_section_scope")
+
+    def test_other_model_names_and_unresolved_coverage(self):
+        for models in (["Alpha", "Beta", "Gamma"], ["A1", "A1 Plus"]):
+            doc = Document(
+                source_id="manual",
+                metadata={"covered_models": models},
+                blocks=(TextBlock(text="Check tire pressure.", block_id="p1"),),
+            )
+            self.assertEqual(
+                process_document(doc)[0].context["applicable_models"], models
+            )
+        doc = Document(
+            source_id="unknown",
+            blocks=(TextBlock(text="Check tire pressure.", block_id="p1"),),
+        )
+        self.assertNotIn("applicable_models", process_document(doc)[0].context)
+
     def test_text_to_measurements(self):
         doc = parse_text(
             "# Drive\nThe scooter uses dual 500 W motors with a combined peak output of 2400 W.",
