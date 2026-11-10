@@ -301,6 +301,17 @@ def _explicit_model_scope(document: Document, block) -> tuple[list[str], str] | 
     if isinstance(block, TableBlock) and block.subject_hint in sections:
         explicit = sections[block.subject_hint]
         basis = "explicit_table_scope"
+    elif isinstance(block, TableBlock) and block.subject_hint and explicit is None:
+        matched = [
+            model for model in covered
+            if re.search(
+                r"(?<![A-Za-z0-9])" + re.escape(model) + r"(?![A-Za-z0-9])",
+                block.subject_hint, re.I,
+            )
+        ]
+        if matched and len(matched) < len(covered):
+            explicit = matched
+            basis = "table_model_mention"
     if explicit is not None:
         if not isinstance(explicit, (list, tuple)) or not explicit or any(
             model not in covered for model in explicit
