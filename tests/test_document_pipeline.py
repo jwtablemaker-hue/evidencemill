@@ -70,6 +70,18 @@ class DocumentPipelineTests(unittest.TestCase):
         self.assertEqual(result.context["applicable_models"], ["X7", "X7PRO"])
         self.assertEqual(result.context["applicability_basis"], "manual_title_coverage")
 
+    def test_pdf_cover_title_without_pdf_metadata(self):
+        doc = Document(
+            source_id="manual.pdf",
+            blocks=(
+                TextBlock(text="X7/X7PRO User Manual", block_id="cover", page=1),
+                TableBlock(rows=(("Battery", "48 V"),), block_id="specs", page=18, layout="key_value"),
+            ),
+        )
+        specs = next(item for item in process_document(doc) if item.kind == "table_cell")
+        self.assertEqual(specs.context["applicable_models"], ["X7", "X7PRO"])
+        self.assertEqual(specs.context["applicability_basis"], "manual_title_coverage")
+
     def test_does_not_infer_from_ambiguous_title(self):
         doc = Document(
             source_id="manual",
