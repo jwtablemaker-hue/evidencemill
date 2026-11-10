@@ -222,6 +222,38 @@ def _figure_observations(document: Document, block: FigureBlock) -> list[Evidenc
     return out
 
 
+def _discover_covered_models(document: Document) -> tuple[list[str], str] | None:
+    """Conservatively recognize explicit enumerations in document metadata.
+
+    A generic document title is not enough to establish machine identities.
+    """
+    declared = document.metadata.get("covered_models")
+    if isinstance(declared, (list, tuple)) and declared and all(
+        isinstance(model, str) and model.strip() for model in declared
+    ):
+        return list(dict.fromkeys(model.strip() for model in declared)), "document_coverage"
+    # Model enumerations are explicit when introduced by a model label.
+    # Avoid splitting speed units, section names, and prose on slashes.
+    sources = [document.title or ""]
+    sources.extend(
+        block.text for block in document.blocks
+        if isinstance(block, TextBlock) and block.kind == "heading"
+    )
+    for source in sources:
+        match = re.search(
+            r"\bmodels?\s*[:：]\s*([^\n.;]+)",
+            source, flags=re.I,
+        )
+        if not match:
+            continue
+        tokens = re.split(r"\s*(?:/|,|\band\b|&)\s*", match.group(1), flags=re.I)
+        if len(tokens) < 2:
+            continue
+        if all(re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 ._-]{0,50}", item.strip()) for item in tokens):
+            return list(dict.fromkeys(item.strip() for item in tokens)), "explicit_model_enumeration"
+    return None
+
+
 def _explicit_model_scope(document: Document, block) -> tuple[list[str], str] | None:
     """Resolve explicit document coverage and narrower section/table exceptions.
 
@@ -229,17 +261,14 @@ def _explicit_model_scope(document: Document, block) -> tuple[list[str], str] | 
     stage never guesses identities from punctuation or model-name morphology.
     """
     metadata = document.metadata
-    covered = metadata.get("covered_models")
-    if not isinstance(covered, (list, tuple)) or not covered or not all(
-        isinstance(model, str) and model.strip() for model in covered
-    ):
+    discovered = _discover_covered_models(document)
+    if discovered is None:
         return None
-    covered = list(dict.fromkeys(model.strip() for model in covered))
+    covered, basis = discovered
     sections = metadata.get("model_scopes", {})
     if not isinstance(sections, dict):
         sections = {}
     explicit = None
-    basis = "document_coverage"
     for heading in getattr(block, "heading_path", ()):
         if heading in sections:
             explicit = sections[heading]
