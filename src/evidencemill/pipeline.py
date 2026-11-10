@@ -325,7 +325,7 @@ def _explicit_model_scope(document: Document, block) -> tuple[list[str], str] | 
         if not isinstance(explicit, (list, tuple)) or not explicit or any(
             model not in covered for model in explicit
         ):
-            return None  # Preserve the observation; do not invent applicability.
+            return [], "invalid_explicit_model_scope"  # Retain evidence and force canonical hold.
         covered = list(dict.fromkeys(explicit))
     return covered, basis
 
@@ -335,15 +335,12 @@ def _attach_model_scope(document: Document, block, observations: list[EvidenceOb
     if resolved is None:
         return observations
     models, basis = resolved
+    scope_context = (
+        {"applicable_models": list(models), "applicability_basis": basis}
+        if models else {"applicability_unresolved": basis}
+    )
     return [
-        replace(
-            observation,
-            context={
-                **observation.context,
-                "applicable_models": list(models),
-                "applicability_basis": basis,
-            },
-        )
+        replace(observation, context={**observation.context, **scope_context})
         for observation in observations
     ]
 
