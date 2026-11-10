@@ -3,6 +3,7 @@ import unittest
 from evidencemill.document import Document, TableBlock, TextBlock
 from evidencemill.ingest.text import parse_text
 from evidencemill.pipeline import process_document, split_sentences
+from evidencemill.worker import FactPrepWorker
 
 
 class DocumentPipelineTests(unittest.TestCase):
@@ -128,6 +129,35 @@ class DocumentPipelineTests(unittest.TestCase):
         cell = next(item for item in result if item.kind == "table_cell")
         self.assertEqual(cell.context["applicable_models"], ["Beta"])
         self.assertEqual(cell.context["applicability_basis"], "table_model_mention")
+
+    def test_scope_survives_fact_prep_worker(self):
+        doc = Document(
+            source_id="manual.pdf",
+            blocks=(
+                TextBlock(text="X7/X7PRO User Manual", block_id="cover", page=1),
+                TableBlock(
+                    rows=(("Battery capacity", "21 Ah"),),
+                    block_id="specifications", page=18, layout="key_value",
+                ),
+                TextBlock(
+                    text="NFC unlocking is supported.",
+                    block_id="pro-controls", page=9,
+                    heading_path=("X7PRO controls",),
+                ),
+            ),
+        )
+        result = FactPrepWorker().run_document(doc)
+        shared = [
+            candidate for candidate in result.candidates
+            if candidate.observation_kind == "measurement"
+        ]
+        self.assertTrue(shared)
+        self.assertEqual(shared[0].context["applicable_models"], ["X7", "X7PRO"])
+        pro = next(
+            candidate for candidate in result.candidates
+            if "NFC unlocking" in str(candidate.value)
+        )
+        self.assertEqual(pro.context["applicable_models"], ["X7PRO"])
 
     def test_text_to_measurements(self):
         doc = parse_text(
