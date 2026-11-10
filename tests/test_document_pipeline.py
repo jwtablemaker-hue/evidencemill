@@ -49,6 +49,25 @@ class DocumentPipelineTests(unittest.TestCase):
         )
         self.assertNotIn("applicable_models", process_document(doc)[0].context)
 
+    def test_discovers_explicit_model_enumerations(self):
+        for title in ("Models: X7/X7PRO", "Models: Alpha, Beta and Gamma"):
+            doc = Document(
+                source_id="manual",
+                title=title,
+                blocks=(TextBlock(text="Inspect the brake.", block_id="p1"),),
+            )
+            result = process_document(doc)
+            self.assertGreaterEqual(len(result[0].context["applicable_models"]), 2)
+            self.assertEqual(result[0].context["applicability_basis"], "explicit_model_enumeration")
+
+    def test_does_not_infer_from_ambiguous_title(self):
+        doc = Document(
+            source_id="manual",
+            title="X7/X7PRO User Manual",
+            blocks=(TextBlock(text="Inspect the brake.", block_id="p1"),),
+        )
+        self.assertNotIn("applicable_models", process_document(doc)[0].context)
+
     def test_text_to_measurements(self):
         doc = parse_text(
             "# Drive\nThe scooter uses dual 500 W motors with a combined peak output of 2400 W.",
