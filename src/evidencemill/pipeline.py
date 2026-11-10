@@ -222,15 +222,138 @@ def _figure_observations(document: Document, block: FigureBlock) -> list[Evidenc
     return out
 
 
+def _model_list(text: str) -> list[str]:
+    """Parse explicit model enumerations without requiring similar model names."""
+    parts = re.split(r"\s*(?:/|,|\band\b|&)\s*", text, flags=re.I)
+    if len(parts) < 2 or any(
+        not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 ._-]{0,50}", part.strip())
+        for part in parts
+    ):
+        return []
+    return list(dict.fromkeys(part.strip() for part in parts))
+
+
+def _discover_covered_models(document: Document) -> tuple[list[str], str] | None:
+    """Find declared models in metadata, explicit headings, or manual titles."""
+    declared = document.metadata.get("covered_models")
+    if isinstance(declared, (list, tuple)) and declared and all(
+        isinstance(model, str) and model.strip() for model in declared
+    ):
+        return list(dict.fromkeys(model.strip() for model in declared)), "document_coverage"
+    sources = [document.title or ""]
+    sources.extend(
+        block.text for block in document.blocks
+        if isinstance(block, TextBlock) and block.kind == "heading"
+    )
+    # PDF ingestion often supplies no metadata title and classifies cover
+    # headings as ordinary paragraphs. Inspect only short first-page lines,
+    # not arbitrary body prose that could mention other machines.
+    for block in document.blocks[:8]:
+        if not isinstance(block, TextBlock) or block.page not in (None, 1):
+            continue
+        for line in block.text.splitlines()[:5]:
+            if len(line.strip()) <= 100:
+                sources.append(line.strip())
+    for source in sources:
+        match = re.search(r"\bmodels?\s*[:：]\s*([^\n.;]+)", source, re.I)
+        if match:
+            models = _model_list(match.group(1))
+            if models:
+                return models, "explicit_model_enumeration"
+        # A title explicitly identifying a user/owner/service manual and
+        # enumerating its covered models is also a coverage declaration.
+        match = re.fullmatch(
+            r"\s*(.+?)\s+(?:user|owner'?s|service|instruction)\s+manual\s*",
+            source, re.I,
+        )
+        if match:
+            models = _model_list(match.group(1))
+            if models:
+                return models, "manual_title_coverage"
+    return None
+
+
+def _explicit_model_scope(document: Document, block) -> tuple[list[str], str] | None:
+    """Resolve explicit document coverage and narrower section/table exceptions.
+
+    The upstream document reader or semantic worker supplies identities; this
+    stage never guesses identities from punctuation or model-name morphology.
+    """
+    metadata = document.metadata
+    discovered = _discover_covered_models(document)
+    if discovered is None:
+        return None
+    covered, basis = discovered
+    sections = metadata.get("model_scopes", {})
+    if not isinstance(sections, dict):
+        sections = {}
+    explicit = None
+    for heading in getattr(block, "heading_path", ()):
+        if heading in sections:
+            explicit = sections[heading]
+            basis = "explicit_section_scope"
+    if explicit is None:
+        for heading in reversed(getattr(block, "heading_path", ())):
+            # Prefer explicit section headings such as "X7PRO controls".
+            # Require identifier boundaries so X7 does not match X7PRO.
+            matched = [
+                model for model in covered
+                if re.search(
+                    r"(?<![A-Za-z0-9])" + re.escape(model) + r"(?![A-Za-z0-9])",
+                    heading, re.I,
+                )
+            ]
+            if matched and len(matched) < len(covered):
+                explicit = matched
+                basis = "section_model_mention"
+                break
+    if isinstance(block, TableBlock) and block.subject_hint in sections:
+        explicit = sections[block.subject_hint]
+        basis = "explicit_table_scope"
+    elif isinstance(block, TableBlock) and block.subject_hint and explicit is None:
+        matched = [
+            model for model in covered
+            if re.search(
+                r"(?<![A-Za-z0-9])" + re.escape(model) + r"(?![A-Za-z0-9])",
+                block.subject_hint, re.I,
+            )
+        ]
+        if matched and len(matched) < len(covered):
+            explicit = matched
+            basis = "table_model_mention"
+    if explicit is not None:
+        if not isinstance(explicit, (list, tuple)) or not explicit or any(
+            model not in covered for model in explicit
+        ):
+            return [], "invalid_explicit_model_scope"  # Retain evidence and force canonical hold.
+        covered = list(dict.fromkeys(explicit))
+    return covered, basis
+
+
+def _attach_model_scope(document: Document, block, observations: list[EvidenceObservation]) -> list[EvidenceObservation]:
+    resolved = _explicit_model_scope(document, block)
+    if resolved is None:
+        return observations
+    models, basis = resolved
+    scope_context = (
+        {"applicable_models": list(models), "applicability_basis": basis}
+        if models else {"applicability_unresolved": basis}
+    )
+    return [
+        replace(observation, context={**observation.context, **scope_context})
+        for observation in observations
+    ]
+
+
 def process_document(document: Document) -> list[EvidenceObservation]:
     observations: list[EvidenceObservation] = []
     for block in document.blocks:
         if isinstance(block, TextBlock):
-            observations.extend(_text_observations(document, block))
+            observations.extend(_attach_model_scope(document, block, _text_observations(document, block)))
         elif isinstance(block, TableBlock):
-            observations.extend(_table_observations(document, block))
+            observations.extend(_attach_model_scope(document, block, _table_observations(document, block)))
         elif isinstance(block, FigureBlock):
-            observations.extend(_figure_observations(document, block))
+            observations.extend(_attach_model_scope(document, block, _figure_observations(document, block)))
     for ref in resolve_cross_references(document):
         observations.append(EvidenceObservation(kind="cross_reference", source=SourceRef(document.source_id, ref.source_block_id, ref.text), value=ref.label, property_hint=ref.kind, context={"target_block_id": ref.target_block_id}, ambiguous=ref.target_block_id is None))
     return observations
