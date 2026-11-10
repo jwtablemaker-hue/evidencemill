@@ -222,15 +222,67 @@ def _figure_observations(document: Document, block: FigureBlock) -> list[Evidenc
     return out
 
 
+def _explicit_model_scope(document: Document, block) -> tuple[list[str], str] | None:
+    """Resolve explicit document coverage and narrower section/table exceptions.
+
+    The upstream document reader or semantic worker supplies identities; this
+    stage never guesses identities from punctuation or model-name morphology.
+    """
+    metadata = document.metadata
+    covered = metadata.get("covered_models")
+    if not isinstance(covered, (list, tuple)) or not covered or not all(
+        isinstance(model, str) and model.strip() for model in covered
+    ):
+        return None
+    covered = list(dict.fromkeys(model.strip() for model in covered))
+    sections = metadata.get("model_scopes", {})
+    if not isinstance(sections, dict):
+        sections = {}
+    explicit = None
+    basis = "document_coverage"
+    for heading in getattr(block, "heading_path", ()):
+        if heading in sections:
+            explicit = sections[heading]
+            basis = "explicit_section_scope"
+    if isinstance(block, TableBlock) and block.subject_hint in sections:
+        explicit = sections[block.subject_hint]
+        basis = "explicit_table_scope"
+    if explicit is not None:
+        if not isinstance(explicit, (list, tuple)) or not explicit or any(
+            model not in covered for model in explicit
+        ):
+            return None  # Preserve the observation; do not invent applicability.
+        covered = list(dict.fromkeys(explicit))
+    return covered, basis
+
+
+def _attach_model_scope(document: Document, block, observations: list[EvidenceObservation]) -> list[EvidenceObservation]:
+    resolved = _explicit_model_scope(document, block)
+    if resolved is None:
+        return observations
+    models, basis = resolved
+    return [
+        replace(
+            observation,
+            context={
+                **observation.context,
+                "applicable_models": list(models),
+                "applicability_basis": basis,
+            },
+        )
+        for observation in observations
+    ]
+
+
 def process_document(document: Document) -> list[EvidenceObservation]:
     observations: list[EvidenceObservation] = []
     for block in document.blocks:
         if isinstance(block, TextBlock):
-            observations.extend(_text_observations(document, block))
+            observations.extend(_attach_model_scope(document, block, _text_observations(document, block)))
         elif isinstance(block, TableBlock):
-            observations.extend(_table_observations(document, block))
+            observations.extend(_attach_model_scope(document, block, _table_observations(document, block)))
         elif isinstance(block, FigureBlock):
-            observations.extend(_figure_observations(document, block))
+            observations.extend(_attach_model_scope(document, block, _figure_observations(document, block)))
     for ref in resolve_cross_references(document):
         observations.append(EvidenceObservation(kind="cross_reference", source=SourceRef(document.source_id, ref.source_block_id, ref.text), value=ref.label, property_hint=ref.kind, context={"target_block_id": ref.target_block_id}, ambiguous=ref.target_block_id is None))
     return observations
