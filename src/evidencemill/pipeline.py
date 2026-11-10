@@ -283,6 +283,21 @@ def _explicit_model_scope(document: Document, block) -> tuple[list[str], str] | 
         if heading in sections:
             explicit = sections[heading]
             basis = "explicit_section_scope"
+    if explicit is None:
+        for heading in reversed(getattr(block, "heading_path", ())):
+            # Prefer explicit section headings such as "X7PRO controls".
+            # Require identifier boundaries so X7 does not match X7PRO.
+            matched = [
+                model for model in covered
+                if re.search(
+                    r"(?<![A-Za-z0-9])" + re.escape(model) + r"(?![A-Za-z0-9])",
+                    heading, re.I,
+                )
+            ]
+            if matched and len(matched) < len(covered):
+                explicit = matched
+                basis = "section_model_mention"
+                break
     if isinstance(block, TableBlock) and block.subject_hint in sections:
         explicit = sections[block.subject_hint]
         basis = "explicit_table_scope"
