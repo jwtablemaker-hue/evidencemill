@@ -78,6 +78,28 @@ class DocumentPipelineTests(unittest.TestCase):
         )
         self.assertNotIn("applicable_models", process_document(doc)[0].context)
 
+    def test_automatic_section_narrowing_preserves_shared_specs(self):
+        doc = Document(
+            source_id="manual",
+            title="X7/X7PRO User Manual",
+            blocks=(
+                TableBlock(
+                    rows=(("Voltage", "48 V"),),
+                    block_id="specs", layout="key_value",
+                ),
+                TextBlock(
+                    text="Use the NFC card.",
+                    block_id="controls", heading_path=("X7PRO controls",),
+                ),
+            ),
+        )
+        result = process_document(doc)
+        shared = next(x for x in result if x.kind == "table_cell")
+        specific = next(x for x in result if x.kind == "statement")
+        self.assertEqual(shared.context["applicable_models"], ["X7", "X7PRO"])
+        self.assertEqual(specific.context["applicable_models"], ["X7PRO"])
+        self.assertEqual(specific.context["applicability_basis"], "section_model_mention")
+
     def test_text_to_measurements(self):
         doc = parse_text(
             "# Drive\nThe scooter uses dual 500 W motors with a combined peak output of 2400 W.",
