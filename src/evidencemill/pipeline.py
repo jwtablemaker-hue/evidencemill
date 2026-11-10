@@ -222,35 +222,45 @@ def _figure_observations(document: Document, block: FigureBlock) -> list[Evidenc
     return out
 
 
-def _discover_covered_models(document: Document) -> tuple[list[str], str] | None:
-    """Conservatively recognize explicit enumerations in document metadata.
+def _model_list(text: str) -> list[str]:
+    """Parse explicit model enumerations without requiring similar model names."""
+    parts = re.split(r"\s*(?:/|,|\band\b|&)\s*", text, flags=re.I)
+    if len(parts) < 2 or any(
+        not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 ._-]{0,50}", part.strip())
+        for part in parts
+    ):
+        return []
+    return list(dict.fromkeys(part.strip() for part in parts))
 
-    A generic document title is not enough to establish machine identities.
-    """
+
+def _discover_covered_models(document: Document) -> tuple[list[str], str] | None:
+    """Find declared models in metadata, explicit headings, or manual titles."""
     declared = document.metadata.get("covered_models")
     if isinstance(declared, (list, tuple)) and declared and all(
         isinstance(model, str) and model.strip() for model in declared
     ):
         return list(dict.fromkeys(model.strip() for model in declared)), "document_coverage"
-    # Model enumerations are explicit when introduced by a model label.
-    # Avoid splitting speed units, section names, and prose on slashes.
     sources = [document.title or ""]
     sources.extend(
         block.text for block in document.blocks
         if isinstance(block, TextBlock) and block.kind == "heading"
     )
     for source in sources:
-        match = re.search(
-            r"\bmodels?\s*[:：]\s*([^\n.;]+)",
-            source, flags=re.I,
+        match = re.search(r"\bmodels?\s*[:：]\s*([^\n.;]+)", source, re.I)
+        if match:
+            models = _model_list(match.group(1))
+            if models:
+                return models, "explicit_model_enumeration"
+        # A title explicitly identifying a user/owner/service manual and
+        # enumerating its covered models is also a coverage declaration.
+        match = re.fullmatch(
+            r"\s*(.+?)\s+(?:user|owner'?s|service|instruction)\s+manual\s*",
+            source, re.I,
         )
-        if not match:
-            continue
-        tokens = re.split(r"\s*(?:/|,|\band\b|&)\s*", match.group(1), flags=re.I)
-        if len(tokens) < 2:
-            continue
-        if all(re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 ._-]{0,50}", item.strip()) for item in tokens):
-            return list(dict.fromkeys(item.strip() for item in tokens)), "explicit_model_enumeration"
+        if match:
+            models = _model_list(match.group(1))
+            if models:
+                return models, "manual_title_coverage"
     return None
 
 
