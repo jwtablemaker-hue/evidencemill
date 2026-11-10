@@ -4,6 +4,29 @@ from evidencemill.table_context import parse_table
 
 
 class TableContextTests(unittest.TestCase):
+    def test_explicit_shared_x7_x7pro_table_scope(self):
+        cells = parse_table(
+            [["Battery voltage", "48 V"], ["Battery capacity", "21 Ah"]],
+            source_id="sunnigoo-manual",
+            table_subject="X7/X7PRO",
+            layout="key_value",
+        )
+        self.assertEqual(len(cells), 2)
+        for cell in cells:
+            self.assertEqual(cell.subject_hint, "X7/X7PRO")
+            self.assertEqual(cell.context["applicable_models"], ["X7", "X7PRO"])
+            self.assertEqual(cell.context["applicability_basis"], "explicit_shared_table_heading")
+
+    def test_single_model_or_generic_heading_does_not_expand(self):
+        for heading in ("X7", "battery/motor", None):
+            cells = parse_table(
+                [["Voltage", "48 V"]],
+                source_id="manual",
+                table_subject=heading,
+                layout="key_value",
+            )
+            self.assertNotIn("applicable_models", cells[0].context)
+
     def test_row_column_and_unit_context(self):
         rows = [
             ["Model", "Rated power (W)", "Peak power (W)"],
