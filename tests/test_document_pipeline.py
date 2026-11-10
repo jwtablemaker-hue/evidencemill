@@ -100,6 +100,23 @@ class DocumentPipelineTests(unittest.TestCase):
         self.assertEqual(specific.context["applicable_models"], ["X7PRO"])
         self.assertEqual(specific.context["applicability_basis"], "section_model_mention")
 
+    def test_model_specific_table_scope(self):
+        doc = Document(
+            source_id="manual",
+            title="Models: Alpha, Beta",
+            blocks=(
+                TableBlock(
+                    rows=(("NFC", "Yes"),),
+                    block_id="beta-controls", layout="key_value",
+                    subject_hint="Beta controls",
+                ),
+            ),
+        )
+        result = process_document(doc)
+        cell = next(item for item in result if item.kind == "table_cell")
+        self.assertEqual(cell.context["applicable_models"], ["Beta"])
+        self.assertEqual(cell.context["applicability_basis"], "table_model_mention")
+
     def test_text_to_measurements(self):
         doc = parse_text(
             "# Drive\nThe scooter uses dual 500 W motors with a combined peak output of 2400 W.",
