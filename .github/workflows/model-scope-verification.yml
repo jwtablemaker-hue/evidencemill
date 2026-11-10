@@ -1,0 +1,17 @@
+name: Temporary model-scope verification
+on:
+  pull_request:
+    paths:
+      - 'src/evidencemill/**'
+      - 'tests/test_document_pipeline.py'
+      - '.github/workflows/model-scope-verification.yml'
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run focused document and worker tests
+        run: PYTHONPATH=src python -m unittest discover -s tests -p 'test_document_pipeline.py' -v
