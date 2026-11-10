@@ -245,6 +245,15 @@ def _discover_covered_models(document: Document) -> tuple[list[str], str] | None
         block.text for block in document.blocks
         if isinstance(block, TextBlock) and block.kind == "heading"
     )
+    # PDF ingestion often supplies no metadata title and classifies cover
+    # headings as ordinary paragraphs. Inspect only short first-page lines,
+    # not arbitrary body prose that could mention other machines.
+    for block in document.blocks[:8]:
+        if not isinstance(block, TextBlock) or block.page not in (None, 1):
+            continue
+        for line in block.text.splitlines()[:5]:
+            if len(line.strip()) <= 100:
+                sources.append(line.strip())
     for source in sources:
         match = re.search(r"\bmodels?\s*[:：]\s*([^\n.;]+)", source, re.I)
         if match:
