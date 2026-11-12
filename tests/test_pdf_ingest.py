@@ -500,7 +500,7 @@ class PdfOcrTests(unittest.TestCase):
                 if region.height < 100:
                     return {
                         "text": ["Every", "ride", "50km", "500km"],
-                        "left": [180, 225, 315, 440],
+                        "left": [120, 165, 300, 430],
                         "top": [12, 12, 12, 12],
                         "width": [40, 30, 45, 50],
                         "height": [18, 18, 18, 18],
