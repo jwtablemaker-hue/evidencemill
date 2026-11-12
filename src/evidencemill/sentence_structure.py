@@ -137,7 +137,46 @@ _SERVICE_ACTIONS = {
     "push": "push",
     "release": "release",
     "loosen": "loosen",
+    "contact": "contact",
+    "discontinue": "discontinue",
+    "repeat": "repeat",
+    "click": "click",
+    "grab": "grab",
+    "put": "put",
+    "add": "add",
+    "adjust": "adjust",
+    "avoid": "avoid",
+    "stop": "stop",
+    "place": "place",
+    "refer": "refer",
+    "visit": "visit",
+    "activate": "activate",
+    "unlock": "unlock",
+    "inflate": "inflate",
+    "reattach": "reattach",
+    "align": "align",
+    "perform": "perform",
 }
+
+_SERVICE_GERUNDS = {
+    "using": "use",
+    "checking": "check",
+    "doing": "perform",
+    "starting": "start",
+    "riding": "ride",
+    "keeping": "keep",
+    "charging": "charge",
+    "tightening": "tighten",
+    "cleaning": "clean",
+    "testing": "test",
+    "adjusting": "adjust",
+    "inflating": "inflate",
+}
+
+_INSTRUCTION_PREFACES = frozenset({
+    "to", "first", "next", "then", "finally", "if", "when", "after",
+    "before", "with", "using", "additionally", "in",
+})
 
 _RECURRENCE_UNITS = frozenset({"min", "h", "day", "week", "month", "year"})
 _RECURRENCE_EVENTS = {
