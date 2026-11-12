@@ -117,6 +117,26 @@ _SERVICE_ACTIONS = {
     "step": "step",
     "glide": "glide",
     "use": "use",
+    "ensure": "ensure",
+    "locate": "locate",
+    "ride": "ride",
+    "keep": "keep",
+    "press": "press",
+    "hold": "hold",
+    "start": "start",
+    "fold": "fold",
+    "attach": "attach",
+    "test": "test",
+    "find": "find",
+    "unfold": "unfold",
+    "follow": "follow",
+    "operate": "operate",
+    "secure": "secure",
+    "remove": "remove",
+    "pull": "pull",
+    "push": "push",
+    "release": "release",
+    "loosen": "loosen",
 }
 
 _RECURRENCE_UNITS = frozenset({"min", "h", "day", "week", "month", "year"})
@@ -486,16 +506,17 @@ def _direct_service_instructions(
             return []
 
     negated = False
-    if tokens[index].norm in {"always", "please"}:
+    while index < len(tokens) and tokens[index].norm in {"always", "please"}:
         index += 1
-    elif (
-        tokens[index].norm == "do"
+    if (
+        index < len(tokens)
+        and tokens[index].norm == "do"
         and index + 1 < len(tokens)
         and tokens[index + 1].norm == "not"
     ):
         negated = True
         index += 2
-    elif tokens[index].norm == "never":
+    elif index < len(tokens) and tokens[index].norm == "never":
         negated = True
         index += 1
 
@@ -504,7 +525,14 @@ def _direct_service_instructions(
     # A component label can start with a word that also names an action.
     if [token.norm for token in tokens[index:]] in (["turn", "signal"], ["turn", "signals"]):
         return []
-    first_action = _SERVICE_ACTIONS.get(tokens[index].norm)
+    if (
+        tokens[index].norm == "make"
+        and index + 1 < len(tokens)
+        and tokens[index + 1].norm == "sure"
+    ):
+        first_action = "ensure"
+    else:
+        first_action = _SERVICE_ACTIONS.get(tokens[index].norm)
     if first_action is None:
         return []
 
