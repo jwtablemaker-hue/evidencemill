@@ -137,7 +137,46 @@ _SERVICE_ACTIONS = {
     "push": "push",
     "release": "release",
     "loosen": "loosen",
+    "contact": "contact",
+    "discontinue": "discontinue",
+    "repeat": "repeat",
+    "click": "click",
+    "grab": "grab",
+    "put": "put",
+    "add": "add",
+    "adjust": "adjust",
+    "avoid": "avoid",
+    "stop": "stop",
+    "place": "place",
+    "refer": "refer",
+    "visit": "visit",
+    "activate": "activate",
+    "unlock": "unlock",
+    "inflate": "inflate",
+    "reattach": "reattach",
+    "align": "align",
+    "perform": "perform",
 }
+
+_SERVICE_GERUNDS = {
+    "using": "use",
+    "checking": "check",
+    "doing": "perform",
+    "starting": "start",
+    "riding": "ride",
+    "keeping": "keep",
+    "charging": "charge",
+    "tightening": "tighten",
+    "cleaning": "clean",
+    "testing": "test",
+    "adjusting": "adjust",
+    "inflating": "inflate",
+}
+
+_INSTRUCTION_PREFACES = frozenset({
+    "to", "first", "next", "then", "finally", "if", "when", "after",
+    "before", "with", "using", "additionally", "in",
+})
 
 _RECURRENCE_UNITS = frozenset({"min", "h", "day", "week", "month", "year"})
 _RECURRENCE_EVENTS = {
@@ -494,10 +533,37 @@ def _direct_service_instructions(
     text: str,
     tokens: list[Token],
     components: list[ComponentMention],
+    *,
+    preface_depth: int = 0,
 ) -> list[ServiceInstruction]:
     """Recognize source-explicit direct imperatives/prohibitions only."""
     if not tokens:
         return []
+
+    if (
+        preface_depth < 2
+        and "," in text
+        and tokens[0].norm in _INSTRUCTION_PREFACES
+    ):
+        suffix = text.split(",", 1)[1].strip()
+        recovered = _direct_service_instructions(
+            suffix,
+            _tokens(suffix),
+            components,
+            preface_depth=preface_depth + 1,
+        )
+        if recovered:
+            item = recovered[0]
+            return [ServiceInstruction(
+                actions=item.actions,
+                action_text=text.strip(),
+                negated=item.negated,
+                mentioned_component_kinds=item.mentioned_component_kinds,
+                target_machine=(
+                    item.target_machine
+                    or any(token.norm in _MACHINE_WORDS for token in tokens)
+                ),
+            )]
 
     index = 0
     if _NUMBER_FULL_RE.fullmatch(tokens[index].norm):
@@ -506,8 +572,48 @@ def _direct_service_instructions(
             return []
 
     negated = False
-    while index < len(tokens) and tokens[index].norm in {"always", "please"}:
+    recommendation = False
+
+    if index < len(tokens) and tokens[index].norm == "we":
+        probe = index + 1
+        if probe < len(tokens) and tokens[probe].norm == "always":
+            probe += 1
+        if probe < len(tokens) and tokens[probe].norm == "recommend":
+            recommendation = True
+            index = probe + 1
+            if index < len(tokens) and tokens[index].norm == "you":
+                index += 1
+                if index < len(tokens) and tokens[index].norm == "not":
+                    negated = True
+                    index += 1
+                if index < len(tokens) and tokens[index].norm == "to":
+                    index += 1
+
+    if not recommendation and index < len(tokens) and tokens[index].norm == "you":
+        if (
+            index + 3 < len(tokens)
+            and tokens[index + 1].norm == "will"
+            and tokens[index + 2].norm == "need"
+            and tokens[index + 3].norm == "to"
+        ):
+            index += 4
+        elif (
+            index + 2 < len(tokens)
+            and tokens[index + 1].norm == "need"
+            and tokens[index + 2].norm == "to"
+        ):
+            index += 3
+        elif (
+            index + 1 < len(tokens)
+            and tokens[index + 1].norm in {"must", "should"}
+        ):
+            index += 2
+
+    while index < len(tokens) and tokens[index].norm in {
+        "always", "please", "simply", "gently", "only", "first",
+    }:
         index += 1
+
     if (
         index < len(tokens)
         and tokens[index].norm == "do"
@@ -516,7 +622,7 @@ def _direct_service_instructions(
     ):
         negated = True
         index += 2
-    elif index < len(tokens) and tokens[index].norm == "never":
+    elif index < len(tokens) and tokens[index].norm in {"never", "not"}:
         negated = True
         index += 1
 
@@ -532,7 +638,22 @@ def _direct_service_instructions(
     ):
         first_action = "ensure"
     else:
-        first_action = _SERVICE_ACTIONS.get(tokens[index].norm)
+        first_action = (
+            _SERVICE_ACTIONS.get(tokens[index].norm)
+            or _SERVICE_GERUNDS.get(tokens[index].norm)
+        )
+
+    if first_action is None and tokens[0].norm == "to":
+        for candidate in range(max(index + 1, 1), len(tokens)):
+            action = (
+                _SERVICE_ACTIONS.get(tokens[candidate].norm)
+                or _SERVICE_GERUNDS.get(tokens[candidate].norm)
+            )
+            if action:
+                index = candidate
+                first_action = action
+                break
+
     if first_action is None:
         return []
 
@@ -540,9 +661,15 @@ def _direct_service_instructions(
     if (
         index + 2 < len(tokens)
         and tokens[index + 1].norm == "and"
-        and tokens[index + 2].norm in _SERVICE_ACTIONS
+        and (
+            tokens[index + 2].norm in _SERVICE_ACTIONS
+            or tokens[index + 2].norm in _SERVICE_GERUNDS
+        )
     ):
-        actions.append(_SERVICE_ACTIONS[tokens[index + 2].norm])
+        actions.append(
+            _SERVICE_ACTIONS.get(tokens[index + 2].norm)
+            or _SERVICE_GERUNDS[tokens[index + 2].norm]
+        )
 
     mentioned = tuple(sorted({item.kind for item in components}))
     target_machine = any(token.norm in _MACHINE_WORDS for token in tokens)
