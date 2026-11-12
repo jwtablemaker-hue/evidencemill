@@ -4,7 +4,9 @@ from pathlib import Path
 import re
 from statistics import median
 
-from evidencemill.document import Document, FigureBlock, TableBlock, TextBlock
+from evidencemill.document import Document, FigureBlock, OcrWord, TableBlock, TextBlock
+from evidencemill.illustration import associate_callouts
+from evidencemill.ingest.image import ocr_words
 
 
 def _looks_like_continuation(previous: str, following: str) -> bool:
@@ -145,6 +147,12 @@ def _bbox(value):
     return tuple(float(x) for x in value) if value is not None else None
 
 
+def _split_halves(image):
+    width, height = image.size
+    midpoint = width // 2
+    return [(0, 0, midpoint, height), (midpoint, 0, width, height)]
+
+
 def _ocr_regions(image):
     """Split only wide images with a blank center and content on both sides.
 
@@ -168,9 +176,143 @@ def _ocr_regions(image):
     center = ink_fraction(.49, .51)
     surrounding = min(ink_fraction(.10, .45), ink_fraction(.55, .90))
     if surrounding >= .01 and center <= .005 and center <= .1 * surrounding:
-        midpoint = width // 2
-        return [(0, 0, midpoint, height), (midpoint, 0, width, height)]
+        return _split_halves(image)
     return [whole]
+
+
+def _looks_like_two_up_spread(image):
+    """Recognize a two-page spread from this page alone.
+
+    Keep the original strict blank-gutter detector for ordinary landscape
+    pages. Very wide pages get one additional cheap layout check: both halves
+    must contain meaningful visual structure, while a narrow vertical region
+    near the midpoint must be substantially quieter than either half. This
+    also works on dark/full-bleed pages where "blank" is black rather than white.
+    """
+    width, height = image.size
+    if height <= 0 or width < 2.2 * height:
+        return False
+
+    from PIL import ImageStat
+
+    sample = image.convert("L")
+    sample.thumbnail((1100, 1100))
+    sw, sh = sample.size
+    top, bottom = int(sh * .05), int(sh * .95)
+    if bottom <= top:
+        return False
+
+    left = ImageStat.Stat(
+        sample.crop((int(sw * .03), top, int(sw * .47), bottom))
+    ).stddev[0]
+    right = ImageStat.Stat(
+        sample.crop((int(sw * .53), top, int(sw * .97), bottom))
+    ).stddev[0]
+    side_activity = min(left, right)
+    if side_activity < 8.0:
+        return False
+
+    window = max(4, int(sw * .008))
+    half_window = max(2, window // 2)
+    seam_activity = None
+    for center in range(int(sw * .47), int(sw * .53) + 1, max(2, window // 3)):
+        x0 = max(0, center - half_window)
+        x1 = min(sw, center + half_window)
+        if x1 <= x0:
+            continue
+        activity = ImageStat.Stat(
+            sample.crop((x0, top, x1, bottom))
+        ).stddev[0]
+        seam_activity = activity if seam_activity is None else min(
+            seam_activity, activity
+        )
+
+    return (
+        seam_activity is not None
+        and seam_activity <= 0.50 * side_activity
+    )
+
+
+def _mask_page_regions(image, bboxes, page_rect):
+    """Mask structured table regions before prose OCR to avoid duplicate facts."""
+    if not bboxes:
+        return image
+    from PIL import ImageDraw
+
+    masked = image.copy()
+    draw = ImageDraw.Draw(masked)
+    page_width = max(float(page_rect.width), 1.0)
+    page_height = max(float(page_rect.height), 1.0)
+    sx = image.width / page_width
+    sy = image.height / page_height
+    px0 = float(page_rect.x0)
+    py0 = float(page_rect.y0)
+    for bbox in bboxes:
+        if bbox is None:
+            continue
+        x0, y0, x1, y1 = bbox
+        left = max(0, min(image.width, int((x0 - px0) * sx)))
+        top = max(0, min(image.height, int((y0 - py0) * sy)))
+        right = max(left, min(image.width, int((x1 - px0) * sx)))
+        bottom = max(top, min(image.height, int((y1 - py0) * sy)))
+        if right > left and bottom > top:
+            draw.rectangle((left, top, right, bottom), fill="white")
+    return masked
+
+
+def _map_words_to_page(words, image_size, rect):
+    """Map embedded-image OCR coordinates into the PDF page coordinate space."""
+    width, height = image_size
+    if width <= 0 or height <= 0 or rect is None:
+        return ()
+    sx = float(rect.width) / width
+    sy = float(rect.height) / height
+    mapped = []
+    for word in words:
+        x0, y0, x1, y1 = word.bbox
+        mapped.append(OcrWord(
+            text=word.text,
+            bbox=(
+                float(rect.x0) + x0 * sx,
+                float(rect.y0) + y0 * sy,
+                float(rect.x0) + x1 * sx,
+                float(rect.y0) + y1 * sy,
+            ),
+            confidence=word.confidence,
+        ))
+    return tuple(mapped)
+
+
+def _embedded_figure_labels(doc, page, xref, rect, pytesseract, Image, cache):
+    """OCR a real embedded figure, but never duplicate a page-sized raster."""
+    if rect is None:
+        return ()
+    page_area = max(float(page.rect.width * page.rect.height), 1.0)
+    rect_area = max(float(rect.width * rect.height), 0.0)
+    coverage = rect_area / page_area
+    if coverage < 0.01 or coverage > 0.70 or rect.width < 40 or rect.height < 40:
+        return ()
+
+    cached = cache.get(xref)
+    if cached is None:
+        try:
+            extracted = doc.extract_image(xref)
+            payload = extracted.get("image")
+            if not payload:
+                cache[xref] = None
+                return ()
+            from io import BytesIO
+            figure_image = Image.open(BytesIO(payload)).convert("RGB")
+            words = ocr_words(figure_image, pytesseract)
+            cached = (figure_image.size, words)
+            cache[xref] = cached
+        except Exception:
+            cache[xref] = None
+            return ()
+    if cached is None:
+        return ()
+    image_size, words = cached
+    return _map_words_to_page(words, image_size, rect)
 
 
 def _center_inside(
@@ -195,6 +337,8 @@ def parse_pdf(path: str | Path, *, source_id: str | None = None, ocr_scanned: bo
     source = source_id or p.name
     blocks = []
     counter = 0
+    two_up_ocr_pages = []
+    figure_ocr_cache = {}
 
     for page_index, page in enumerate(doc):
         page_no = page_index + 1
@@ -221,11 +365,7 @@ def parse_pdf(path: str | Path, *, source_id: str | None = None, ocr_scanned: bo
         # readable text. Keep their native lines as evidence below.
         controls = sum(not char.isprintable() for char in native_text)
         corrupt_text = controls >= 8 and controls * 4 >= native_count
-        meaningful_tables = any(
-            str(cell).strip() for rows, _ in detected_tables
-            for row in rows for cell in row if cell is not None
-        )
-        if (native_count <= 32 or corrupt_text) and not meaningful_tables and ocr_scanned:
+        if (native_count <= 32 or corrupt_text) and ocr_scanned:
             try:
                 from PIL import Image
                 import pytesseract
@@ -233,14 +373,27 @@ def parse_pdf(path: str | Path, *, source_id: str | None = None, ocr_scanned: bo
                 raise RuntimeError("scanned-page OCR requires the 'ocr' extra") from exc
             pix = page.get_pixmap(matrix=fitz.Matrix(4, 4), alpha=False)
             image = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+            regions = _ocr_regions(image)
+            if len(regions) == 1 and _looks_like_two_up_spread(image):
+                regions = _split_halves(image)
+            if len(regions) == 2:
+                two_up_ocr_pages.append(page_no)
+            # Structured tables have already been extracted. Mask those exact
+            # rectangles so OCR can recover the rest of the page without
+            # re-emitting table cells as prose.
+            prose_image = _mask_page_regions(
+                image,
+                [bbox for _, bbox in detected_tables if bbox is not None],
+                page.rect,
+            )
             region_texts = [
                 (
                     region,
                     _normalize_text_preserving_paragraphs(
-                        _ocr_text_with_layout(image.crop(region), pytesseract)
+                        _ocr_text_with_layout(prose_image.crop(region), pytesseract)
                     ),
                 )
-                for region in _ocr_regions(image)
+                for region in regions
             ]
             ocr_count = sum(len("".join(text.split())) for _, text in region_texts)
             # Keep the existing textless-page fallback, even for a short OCR result.
@@ -320,17 +473,38 @@ def parse_pdf(path: str | Path, *, source_id: str | None = None, ocr_scanned: bo
             if not rects:
                 rects = (None,)
             for rect in rects:
+                labels = ()
+                callouts = ()
+                if ocr_scanned and rect is not None:
+                    try:
+                        from PIL import Image
+                        import pytesseract
+                    except ImportError:
+                        Image = None
+                        pytesseract = None
+                    if Image is not None and pytesseract is not None:
+                        labels = _embedded_figure_labels(
+                            doc, page, xref, rect, pytesseract, Image, figure_ocr_cache
+                        )
+                        if labels:
+                            callouts = tuple(
+                                item.callout for item in associate_callouts(labels)
+                            )
                 counter += 1
                 blocks.append(FigureBlock(
                     block_id=f"figure-{counter}",
                     page=page_no,
                     bbox=_bbox(rect),
+                    labels=labels,
+                    callouts=callouts,
                     source_path=f"{p}#page={page_no}&xref={xref}",
                 ))
 
     metadata = dict(doc.metadata or {})
     title = metadata.get("title") or None
     page_count = doc.page_count
+    if two_up_ocr_pages:
+        metadata["ocr_two_up_pages"] = list(dict.fromkeys(two_up_ocr_pages))
     doc.close()
     metadata["page_count"] = page_count
     return Document(source_id=source, title=title, blocks=tuple(blocks), metadata=metadata)
