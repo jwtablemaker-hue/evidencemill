@@ -11,7 +11,12 @@ except ImportError:
     fitz = None
 
 from evidencemill.document import TextBlock
-from evidencemill.ingest.pdf import parse_pdf, _ocr_regions, _ocr_text_with_layout
+from evidencemill.ingest.pdf import (
+    parse_pdf,
+    _looks_like_two_up_spread,
+    _ocr_regions,
+    _ocr_text_with_layout,
+)
 from evidencemill.worker import FactPrepWorker
 
 
@@ -202,28 +207,48 @@ class PdfOcrTests(unittest.TestCase):
         self.assertEqual(sum(b.kind == "ocr_paragraph" for b in blocks), 1)
         self.assertEqual(self.text(document).count("ES1"), 1)
 
-    def parse_landscape_document(self, gutters):
+    def test_very_wide_page_with_quiet_center_splits_without_document_vote(self):
+        from PIL import Image, ImageDraw
+
+        image = Image.new("RGB", (1200, 400), "black")
+        draw = ImageDraw.Draw(image)
+        # Distinct content on both logical pages, plus a center-crossing label.
+        for y in range(60, 340, 24):
+            draw.rectangle((70, y, 470, y + 5), fill="white")
+            draw.rectangle((730, y, 1130, y + 5), fill="white")
+        draw.rectangle((635, 80, 648, 320), fill="white")
+        self.assertTrue(_looks_like_two_up_spread(image))
+
+    def test_true_landscape_page_is_not_split_by_relaxed_page_check(self):
+        from PIL import Image, ImageDraw
+
+        image = Image.new("RGB", (800, 400), "white")
+        draw = ImageDraw.Draw(image)
+        for y in range(50, 350, 20):
+            draw.rectangle((50, y, 750, y + 4), fill="black")
+        self.assertFalse(_looks_like_two_up_spread(image))
+
+    def test_page_level_two_up_detection_controls_ocr_regions(self):
         from PIL import Image, ImageDraw
         from io import BytesIO
 
+        image = Image.new("RGB", (1200, 400), "white")
+        draw = ImageDraw.Draw(image)
+        for y in range(50, 350, 20):
+            draw.rectangle((60, y, 480, y + 4), fill="black")
+            draw.rectangle((720, y, 1140, y + 4), fill="black")
+        # A narrow center mark defeats the old exact blank-gutter check.
+        draw.rectangle((596, 120, 604, 280), fill="black")
+        stream = BytesIO()
+        image.save(stream, format="PNG")
         seen = []
+
         with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "two-up-document.pdf"
+            path = Path(directory) / "page-level-two-up.pdf"
             with fitz.open() as pdf:
-                for gutter in gutters:
-                    image = Image.new("RGB", (800, 400), "white")
-                    draw = ImageDraw.Draw(image)
-                    for y in range(50, 350, 20):
-                        if gutter:
-                            draw.rectangle((50, y, 350, y + 4), fill="black")
-                            draw.rectangle((450, y, 750, y + 4), fill="black")
-                        else:
-                            draw.rectangle((50, y, 750, y + 4), fill="black")
-                    stream = BytesIO()
-                    image.save(stream, format="PNG")
-                    page = pdf.new_page(width=800, height=400)
-                    page.insert_image(page.rect, stream=stream.getvalue())
-                    page.insert_text((20, 20), "ES1")
+                page = pdf.new_page(width=1200, height=400)
+                page.insert_image(page.rect, stream=stream.getvalue())
+                page.insert_text((20, 20), "ES1")
                 pdf.save(path)
 
             def read(region):
@@ -235,30 +260,9 @@ class PdfOcrTests(unittest.TestCase):
                 side_effect=lambda region, _: read(region),
             ):
                 document = parse_pdf(path, ocr_scanned=True)
-        return document, seen
 
-    def test_repeated_two_up_layout_splits_center_crossing_sheets(self):
-        document, seen = self.parse_landscape_document(
-            [True, True, True, False, False]
-        )
-        self.assertEqual(len(seen), 10)
-        self.assertEqual(
-            seen,
-            [(1600, 1600), (1600, 1600)] * 5,
-        )
-        self.assertEqual(document.metadata["ocr_two_up_pages"], [1, 2, 3, 4, 5])
-        self.assertEqual(
-            document.metadata["ocr_two_up_inferred_geometries"],
-            [[800.0, 400.0]],
-        )
-
-    def test_document_layout_does_not_force_split_without_majority_evidence(self):
-        document, seen = self.parse_landscape_document(
-            [True, True, False, False, False]
-        )
-        self.assertEqual(len(seen), 7)
-        self.assertEqual(document.metadata["ocr_two_up_pages"], [1, 2])
-        self.assertNotIn("ocr_two_up_inferred_geometries", document.metadata)
+        self.assertEqual(seen, [(2400, 1600), (2400, 1600)])
+        self.assertEqual(document.metadata["ocr_two_up_pages"], [1])
 
     def test_one_line_ocr_block_splits_only_at_anomalous_word_gap(self):
 
