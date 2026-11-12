@@ -14,6 +14,7 @@ from evidencemill.document import FigureBlock, OcrWord, TableBlock, TextBlock
 from evidencemill.ingest.pdf import (
     parse_pdf,
     _looks_like_two_up_spread,
+    _ocr_banded_table,
     _ocr_regions,
     _ocr_ruled_table,
     _ocr_text_with_layout,
@@ -474,6 +475,89 @@ class PdfOcrTests(unittest.TestCase):
         self.assertEqual(rows[1], ["Deck", "M4x10mm", "2Nm", "4"])
         self.assertLessEqual(abs(bbox[0] - 50), 4)
         self.assertLessEqual(abs(bbox[2] - 590), 4)
+
+    def test_banded_raster_table_requires_bands_rules_and_regular_headers(self):
+        from PIL import Image, ImageDraw
+
+        image = Image.new("RGB", (600, 500), "white")
+        draw = ImageDraw.Draw(image)
+        table_left, table_right = 50, 550
+        draw.line((table_left, 60, table_right, 60), fill=(220, 220, 220), width=2)
+        for top, bottom in ((100, 150), (220, 270), (340, 390)):
+            draw.rectangle(
+                (table_left, top, table_right, bottom),
+                fill=(220, 220, 220),
+            )
+        draw.line((table_left, 430, table_right, 430), fill=(220, 220, 220), width=2)
+
+        class FakeTesseract:
+            Output = SimpleNamespace(DICT="DICT")
+
+            @staticmethod
+            def image_to_data(region, output_type, config=None):
+                self.assertEqual(output_type, "DICT")
+                self.assertEqual(config, "--psm 6")
+                if region.height < 100:
+                    return {
+                        "text": ["Every", "ride", "50km", "500km"],
+                        "left": [120, 165, 300, 430],
+                        "top": [12, 12, 12, 12],
+                        "width": [40, 30, 45, 50],
+                        "height": [18, 18, 18, 18],
+                        "block_num": [1] * 4,
+                        "par_num": [1] * 4,
+                        "line_num": [1] * 4,
+                    }
+
+                texts = [
+                    "Tires", "Check", "pressure",
+                    "Brakes", "Check", "adjustment",
+                    "Lights", "Inspect", "lights",
+                    "Battery", "Review", "health",
+                    "Wheel", "nuts", "Tighten",
+                    "Fender", "screws", "Tighten",
+                ]
+                row_centers = [65, 125, 185, 245, 305, 365]
+                left = []
+                top = []
+                widths = []
+                heights = []
+                lines = []
+                for row_index, center_y in enumerate(row_centers, start=1):
+                    left.extend([25, 175, 235])
+                    top.extend([center_y, center_y, center_y])
+                    widths.extend([70, 45, 65])
+                    heights.extend([18, 18, 18])
+                    lines.extend([row_index, row_index, row_index])
+                return {
+                    "text": texts,
+                    "left": left,
+                    "top": top,
+                    "width": widths,
+                    "height": heights,
+                    "block_num": [1] * len(texts),
+                    "par_num": [1] * len(texts),
+                    "line_num": lines,
+                }
+
+        recovered = _ocr_banded_table(image, FakeTesseract)
+        self.assertIsNotNone(recovered)
+        rows, bbox = recovered
+        self.assertEqual(rows[0], ["", "Every ride", "50km", "500km"])
+        self.assertEqual(rows[1][0], "Tires")
+        self.assertEqual(rows[2][0], "Brakes")
+        self.assertGreaterEqual(len(rows), 4)
+        self.assertLessEqual(abs(bbox[0] - table_left), 5)
+        self.assertLessEqual(abs(bbox[2] - table_right), 5)
+
+        unbounded = Image.new("RGB", (600, 500), "white")
+        unbounded_draw = ImageDraw.Draw(unbounded)
+        for top, bottom in ((100, 150), (220, 270), (340, 390)):
+            unbounded_draw.rectangle(
+                (table_left, top, table_right, bottom),
+                fill=(220, 220, 220),
+            )
+        self.assertIsNone(_ocr_banded_table(unbounded, FakeTesseract))
 
     def test_one_line_ocr_block_splits_only_at_anomalous_word_gap(self):
 

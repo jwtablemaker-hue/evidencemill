@@ -554,6 +554,344 @@ def _ocr_ruled_table(image, pytesseract):
     return rows, (table_x0, table_y0, table_x1, table_y1)
 
 
+def _longest_dark_row_run(gray, y: int, *, threshold: int = 235) -> tuple[int, int, int]:
+    """Longest contiguous dark run in one grayscale row."""
+    values = gray.crop((0, y, gray.width, y + 1)).tobytes()
+    best_start = 0
+    best_end = 0
+    best_length = 0
+    start = None
+    for x, value in enumerate(values + b"\xff"):
+        if value < threshold and start is None:
+            start = x
+        elif value >= threshold and start is not None:
+            length = x - start
+            if length > best_length:
+                best_start = start
+                best_end = x - 1
+                best_length = length
+            start = None
+    return best_start, best_end, best_length
+
+
+def _banded_table_geometry(image):
+    """Find a zebra-banded table only when its visual structure is explicit.
+
+    A candidate must have at least three wide filled row bands sharing the same
+    left/right extent, plus matching thin top and bottom rules. This deliberately
+    excludes ordinary aligned prose and unbounded graphics.
+    """
+    gray = image.convert("L")
+    gray.thumbnail((1100, 1100))
+    width, height = gray.size
+    if width < 100 or height < 100:
+        return None
+
+    runs = []
+    for y in range(height):
+        x0, x1, run = _longest_dark_row_run(gray, y)
+        if run >= 0.50 * width:
+            runs.append((y, x0, x1, run))
+    if not runs:
+        return None
+
+    groups = []
+    for item in runs:
+        if not groups or item[0] > groups[-1][-1][0] + 1:
+            groups.append([item])
+        else:
+            groups[-1].append(item)
+
+    representatives = []
+    for group in groups:
+        representatives.append({
+            "y0": group[0][0],
+            "y1": group[-1][0],
+            "height": group[-1][0] - group[0][0] + 1,
+            "x0": int(round(median(item[1] for item in group))),
+            "x1": int(round(median(item[2] for item in group))),
+        })
+
+    minimum_band_height = max(4, int(0.025 * height))
+    maximum_rule_height = max(4, int(0.015 * height))
+    filled = [
+        item for item in representatives
+        if item["height"] >= minimum_band_height
+    ]
+    tolerance = max(5, int(0.03 * width))
+    candidates = []
+
+    for seed in filled:
+        cluster = sorted(
+            (
+                item for item in filled
+                if abs(item["x0"] - seed["x0"]) <= tolerance
+                and abs(item["x1"] - seed["x1"]) <= tolerance
+            ),
+            key=lambda item: item["y0"],
+        )
+        sequences = []
+        current = []
+        for item in cluster:
+            if (
+                current
+                and item["y0"] - current[-1]["y1"] - 1 > 0.16 * height
+            ):
+                sequences.append(current)
+                current = []
+            current.append(item)
+        if current:
+            sequences.append(current)
+
+        for sequence in sequences:
+            if len(sequence) < 3:
+                continue
+            table_x0 = int(round(median(item["x0"] for item in sequence)))
+            table_x1 = int(round(median(item["x1"] for item in sequence)))
+            if table_x1 - table_x0 < 0.50 * width:
+                continue
+
+            rules = [
+                item for item in representatives
+                if item["height"] <= maximum_rule_height
+                and abs(item["x0"] - table_x0) <= tolerance
+                and abs(item["x1"] - table_x1) <= tolerance
+            ]
+            top_rules = [
+                item for item in rules
+                if 0 <= sequence[0]["y0"] - item["y1"] - 1 <= 0.10 * height
+            ]
+            bottom_rules = [
+                item for item in rules
+                if 0 <= item["y0"] - sequence[-1]["y1"] - 1 <= 0.10 * height
+            ]
+            if not top_rules or not bottom_rules:
+                continue
+            top_rule = max(top_rules, key=lambda item: item["y1"])
+            bottom_rule = min(bottom_rules, key=lambda item: item["y0"])
+            if (
+                top_rule["y1"] >= sequence[0]["y0"]
+                or bottom_rule["y0"] <= sequence[-1]["y1"]
+            ):
+                continue
+            candidates.append(
+                (
+                    len(sequence),
+                    table_x1 - table_x0,
+                    table_x0,
+                    table_x1,
+                    top_rule,
+                    bottom_rule,
+                    sequence,
+                )
+            )
+
+    if not candidates:
+        return None
+
+    _, _, table_x0, table_x1, top_rule, bottom_rule, bands = max(
+        candidates,
+        key=lambda item: (item[0], item[1]),
+    )
+    scale_x = image.width / width
+    scale_y = image.height / height
+
+    def scaled_x(value):
+        return int(round(value * scale_x))
+
+    def scaled_y(value):
+        return int(round(value * scale_y))
+
+    return {
+        "bbox": (
+            scaled_x(table_x0),
+            scaled_y(top_rule["y0"]),
+            scaled_x(table_x1),
+            scaled_y(bottom_rule["y1"]),
+        ),
+        "header": (
+            scaled_y(top_rule["y1"] + 1),
+            scaled_y(bands[0]["y0"] - 1),
+        ),
+        "bands": tuple(
+            (scaled_y(item["y0"]), scaled_y(item["y1"]))
+            for item in bands
+        ),
+        "bottom_rule_start": scaled_y(bottom_rule["y0"]),
+    }
+
+
+def _ocr_banded_table(image, pytesseract):
+    """Recover a strictly bounded zebra-banded table from OCR word geometry."""
+    geometry = _banded_table_geometry(image)
+    if geometry is None:
+        return None
+
+    table_x0, table_y0, table_x1, table_y1 = geometry["bbox"]
+    header_y0, header_y1 = geometry["header"]
+    if (
+        table_x1 <= table_x0
+        or table_y1 <= table_y0
+        or header_y1 <= header_y0
+    ):
+        return None
+
+    header_crop = image.crop(
+        (table_x0, header_y0, table_x1 + 1, header_y1 + 1)
+    )
+    header_data = pytesseract.image_to_data(
+        header_crop,
+        output_type=pytesseract.Output.DICT,
+        config="--psm 6",
+    )
+    header_words = []
+    for index, raw in enumerate(header_data.get("text", ())):
+        text = str(raw).strip()
+        if not text:
+            continue
+        header_words.append({
+            "text": text,
+            "left": int(header_data["left"][index]) + table_x0,
+            "top": int(header_data["top"][index]) + header_y0,
+            "width": int(header_data["width"][index]),
+            "height": int(header_data["height"][index]),
+        })
+    if len(header_words) < 3:
+        return None
+
+    header_words.sort(key=lambda item: item["left"])
+    typical_height = median(
+        max(1, int(item["height"])) for item in header_words
+    )
+    gap_threshold = max(20.0, 4.0 * typical_height)
+    header_groups = []
+    for word in header_words:
+        if not header_groups:
+            header_groups.append([word])
+            continue
+        previous = header_groups[-1][-1]
+        gap = word["left"] - (previous["left"] + previous["width"])
+        if gap <= gap_threshold:
+            header_groups[-1].append(word)
+        else:
+            header_groups.append([word])
+
+    if not 3 <= len(header_groups) <= 8:
+        return None
+
+    centers = []
+    labels = []
+    for group in header_groups:
+        left = min(item["left"] for item in group)
+        right = max(item["left"] + item["width"] for item in group)
+        centers.append((left + right) / 2.0)
+        labels.append(" ".join(item["text"] for item in group))
+
+    spacings = [
+        following - previous
+        for previous, following in zip(centers, centers[1:])
+    ]
+    typical_spacing = median(spacings)
+    if (
+        typical_spacing <= 0
+        or any(
+            spacing < 0.75 * typical_spacing
+            or spacing > 1.25 * typical_spacing
+            for spacing in spacings
+        )
+    ):
+        return None
+
+    span = table_x1 - table_x0
+    first_boundary = centers[0] - typical_spacing / 2.0
+    if (
+        first_boundary <= table_x0 + 0.10 * span
+        or first_boundary >= centers[0]
+    ):
+        return None
+
+    column_edges = [float(table_x0), first_boundary]
+    column_edges.extend(
+        (left + right) / 2.0
+        for left, right in zip(centers, centers[1:])
+    )
+    column_edges.append(float(table_x1))
+
+    table_crop = image.crop(
+        (table_x0, table_y0, table_x1 + 1, table_y1 + 1)
+    ).convert("L")
+    # The alternating gray fill is intentionally removed before OCR. Black text
+    # survives; the light row bands do not compete with the glyphs.
+    table_crop = table_crop.point(lambda value: 0 if value < 170 else 255)
+    body_data = pytesseract.image_to_data(
+        table_crop,
+        output_type=pytesseract.Output.DICT,
+        config="--psm 6",
+    )
+    words = []
+    for index, raw in enumerate(body_data.get("text", ())):
+        text = str(raw).strip()
+        if not text:
+            continue
+        words.append({
+            "text": text,
+            "left": int(body_data["left"][index]) + table_x0,
+            "top": int(body_data["top"][index]) + table_y0,
+            "width": int(body_data["width"][index]),
+            "height": int(body_data["height"][index]),
+            "block": int(body_data["block_num"][index]),
+            "par": int(body_data["par_num"][index]),
+            "line": int(body_data["line_num"][index]),
+        })
+
+    row_intervals = []
+    bands = geometry["bands"]
+    for index, (band_y0, band_y1) in enumerate(bands):
+        row_intervals.append((band_y0, band_y1))
+        following_y0 = (
+            bands[index + 1][0]
+            if index + 1 < len(bands)
+            else geometry["bottom_rule_start"]
+        )
+        if band_y1 + 1 <= following_y0 - 1:
+            row_intervals.append((band_y1 + 1, following_y0 - 1))
+
+    rows = [["", *labels]]
+    for row_y0, row_y1 in row_intervals:
+        cells = []
+        for left, right in zip(column_edges, column_edges[1:]):
+            cell_words = [
+                word for word in words
+                if row_y0
+                <= word["top"] + word["height"] / 2.0
+                <= row_y1
+                and left
+                <= word["left"] + word["width"] / 2.0
+                <= right
+            ]
+            cell_words.sort(
+                key=lambda item: (
+                    item["block"],
+                    item["par"],
+                    item["line"],
+                    item["left"],
+                )
+            )
+            cells.append(" ".join(item["text"] for item in cell_words))
+        if any(cells):
+            rows.append(cells)
+
+    body_rows = rows[1:]
+    labeled_rows = sum(bool(row[0].strip()) for row in body_rows)
+    if (
+        len(body_rows) < 3
+        or labeled_rows < max(2, int(0.60 * len(body_rows)))
+    ):
+        return None
+
+    return rows, (table_x0, table_y0, table_x1, table_y1)
+
+
 def _bbox_overlap_fraction(a, b) -> float:
     if a is None or b is None:
         return 0.0
@@ -597,6 +935,7 @@ def parse_pdf(path: str | Path, *, source_id: str | None = None, ocr_scanned: bo
     counter = 0
     two_up_ocr_pages = []
     ruled_table_ocr_pages = []
+    banded_table_ocr_pages = []
     figure_ocr_cache = {}
 
     for page_index, page in enumerate(doc):
@@ -645,11 +984,22 @@ def parse_pdf(path: str | Path, *, source_id: str | None = None, ocr_scanned: bo
             # raster. Recover only strongly ruled tables, before prose OCR, so
             # their row/column relationships survive and the same rectangle can
             # be masked out of the prose pass.
+            page_has_ruled_table = False
+            page_has_banded_table = False
             for region in regions:
                 rx0, ry0, rx1, ry1 = region
-                recovered = _ocr_ruled_table(image.crop(region), pytesseract)
+                region_image = image.crop(region)
+                recovered = _ocr_ruled_table(region_image, pytesseract)
+                recovery_kind = "ruled"
+                if recovered is None:
+                    recovered = _ocr_banded_table(region_image, pytesseract)
+                    recovery_kind = "banded"
                 if recovered is None:
                     continue
+                if recovery_kind == "ruled":
+                    page_has_ruled_table = True
+                else:
+                    page_has_banded_table = True
                 rows, (tx0, ty0, tx1, ty1) = recovered
                 pixel_bbox = (
                     rx0 + tx0,
@@ -822,6 +1172,8 @@ def parse_pdf(path: str | Path, *, source_id: str | None = None, ocr_scanned: bo
         metadata["ocr_two_up_pages"] = list(dict.fromkeys(two_up_ocr_pages))
     if ruled_table_ocr_pages:
         metadata["ocr_ruled_table_pages"] = list(dict.fromkeys(ruled_table_ocr_pages))
+    if banded_table_ocr_pages:
+        metadata["ocr_banded_table_pages"] = list(dict.fromkeys(banded_table_ocr_pages))
     doc.close()
     metadata["page_count"] = page_count
     return Document(source_id=source, title=title, blocks=tuple(blocks), metadata=metadata)
