@@ -271,6 +271,28 @@ class SentenceStructureTests(unittest.TestCase):
                 self.assertEqual(instruction.negated, negated)
                 self.assertEqual(instruction.action_text, text)
 
+    def test_direct_manual_actions_and_polite_prohibitions_are_retained(self):
+        samples = (
+            ("Locate the adjustment screw.", ("locate",), False),
+            ("Ensure that all screws are properly tightened.", ("ensure",), False),
+            ("Make sure the pins are aligned.", ("ensure",), False),
+            ("Press and hold the M button for 2 seconds.", ("press", "hold"), False),
+            ("Fold the safety button down until it latches.", ("fold",), False),
+            ("Attach the air hose to the tire valve.", ("attach",), False),
+            ("Test your right and left signals.", ("test",), False),
+            ("Never ride with more than one rider.", ("ride",), True),
+            ("Do not operate the scooter if the stem is loose.", ("operate",), True),
+            ("Please do not leave the scooter plugged in overnight.", ("leave",), True),
+        )
+        for text, actions, negated in samples:
+            with self.subTest(text=text):
+                result = analyze_statement(text)
+                self.assertEqual(len(result.service_instructions), 1)
+                instruction = result.service_instructions[0]
+                self.assertEqual(instruction.actions, actions)
+                self.assertEqual(instruction.negated, negated)
+                self.assertEqual(instruction.action_text, text)
+
     def test_direct_instruction_preserves_mentions_without_claiming_target(self):
         result = analyze_statement(
             "Do not connect the charger if the charging port is wet."
