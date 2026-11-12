@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from math import ceil
 from pathlib import Path
 import re
 from statistics import median
@@ -179,55 +178,57 @@ def _ocr_regions(image):
     return [whole]
 
 
-def _wide_page_geometry(page):
-    width = float(page.rect.width)
-    height = float(page.rect.height)
-    if height <= 0 or width < 1.5 * height:
-        return None
-    return (round(width, 1), round(height, 1))
+def _looks_like_two_up_spread(image):
+    """Recognize a two-page spread from this page alone.
 
-
-def _page_has_two_up_gutter(page, fitz, Image):
-    """Probe page layout cheaply; this does not OCR or alter source evidence."""
-    width = max(float(page.rect.width), 1.0)
-    scale = min(2.0, 1100.0 / width)
-    pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=False)
-    image = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
-    return len(_ocr_regions(image)) == 2
-
-
-def _infer_document_two_up_geometries(doc, fitz, Image):
-    """Infer repeated two-up sheet geometry from conservative gutter evidence.
-
-    A center-crossing title, diagram, or artwork can hide the gutter on an
-    individual sheet. When at least 60% of four or more same-sized wide sheets
-    independently show the two-up gutter, treat that repeated sheet geometry as
-    two-up for OCR reading order. This is document-local evidence only.
+    Keep the original strict blank-gutter detector for ordinary landscape
+    pages. Very wide pages get one additional cheap layout check: both halves
+    must contain meaningful visual structure, while a narrow vertical region
+    near the midpoint must be substantially quieter than either half. This
+    also works on dark/full-bleed pages where "blank" is black rather than white.
     """
-    groups = {}
-    for page in doc:
-        geometry = _wide_page_geometry(page)
-        if geometry is not None:
-            groups.setdefault(geometry, []).append(page)
+    width, height = image.size
+    if height <= 0 or width < 2.2 * height:
+        return False
 
-    inferred = set()
-    for geometry, pages in groups.items():
-        if len(pages) < 4:
+    from PIL import ImageStat
+
+    sample = image.convert("L")
+    sample.thumbnail((1100, 1100))
+    sw, sh = sample.size
+    top, bottom = int(sh * .05), int(sh * .95)
+    if bottom <= top:
+        return False
+
+    left = ImageStat.Stat(
+        sample.crop((int(sw * .03), top, int(sw * .47), bottom))
+    ).stddev[0]
+    right = ImageStat.Stat(
+        sample.crop((int(sw * .53), top, int(sw * .97), bottom))
+    ).stddev[0]
+    side_activity = min(left, right)
+    if side_activity < 8.0:
+        return False
+
+    window = max(4, int(sw * .008))
+    half_window = max(2, window // 2)
+    seam_activity = None
+    for center in range(int(sw * .47), int(sw * .53) + 1, max(2, window // 3)):
+        x0 = max(0, center - half_window)
+        x1 = min(sw, center + half_window)
+        if x1 <= x0:
             continue
-        if len(pages) > 24:
-            last = len(pages) - 1
-            indices = sorted({round(i * last / 23) for i in range(24)})
-            sample = [pages[index] for index in indices]
-        else:
-            sample = pages
-        votes = sum(
-            _page_has_two_up_gutter(page, fitz, Image)
-            for page in sample
+        activity = ImageStat.Stat(
+            sample.crop((x0, top, x1, bottom))
+        ).stddev[0]
+        seam_activity = activity if seam_activity is None else min(
+            seam_activity, activity
         )
-        required = max(3, ceil(0.60 * len(sample)))
-        if votes >= required:
-            inferred.add(geometry)
-    return inferred
+
+    return (
+        seam_activity is not None
+        and seam_activity <= 0.50 * side_activity
+    )
 
 
 def _center_inside(
@@ -252,7 +253,6 @@ def parse_pdf(path: str | Path, *, source_id: str | None = None, ocr_scanned: bo
     source = source_id or p.name
     blocks = []
     counter = 0
-    inferred_two_up_geometries = None
     two_up_ocr_pages = []
 
     for page_index, page in enumerate(doc):
@@ -290,18 +290,10 @@ def parse_pdf(path: str | Path, *, source_id: str | None = None, ocr_scanned: bo
                 import pytesseract
             except ImportError as exc:
                 raise RuntimeError("scanned-page OCR requires the 'ocr' extra") from exc
-            if inferred_two_up_geometries is None:
-                inferred_two_up_geometries = _infer_document_two_up_geometries(
-                    doc, fitz, Image
-                )
             pix = page.get_pixmap(matrix=fitz.Matrix(4, 4), alpha=False)
             image = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
             regions = _ocr_regions(image)
-            geometry = _wide_page_geometry(page)
-            if (
-                geometry in inferred_two_up_geometries
-                and len(regions) == 1
-            ):
+            if len(regions) == 1 and _looks_like_two_up_spread(image):
                 regions = _split_halves(image)
             if len(regions) == 2:
                 two_up_ocr_pages.append(page_no)
@@ -403,10 +395,6 @@ def parse_pdf(path: str | Path, *, source_id: str | None = None, ocr_scanned: bo
     metadata = dict(doc.metadata or {})
     title = metadata.get("title") or None
     page_count = doc.page_count
-    if inferred_two_up_geometries:
-        metadata["ocr_two_up_inferred_geometries"] = [
-            list(geometry) for geometry in sorted(inferred_two_up_geometries)
-        ]
     if two_up_ocr_pages:
         metadata["ocr_two_up_pages"] = list(dict.fromkeys(two_up_ocr_pages))
     doc.close()
