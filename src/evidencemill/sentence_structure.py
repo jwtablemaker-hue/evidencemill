@@ -572,8 +572,48 @@ def _direct_service_instructions(
             return []
 
     negated = False
-    while index < len(tokens) and tokens[index].norm in {"always", "please"}:
+    recommendation = False
+
+    if index < len(tokens) and tokens[index].norm == "we":
+        probe = index + 1
+        if probe < len(tokens) and tokens[probe].norm == "always":
+            probe += 1
+        if probe < len(tokens) and tokens[probe].norm == "recommend":
+            recommendation = True
+            index = probe + 1
+            if index < len(tokens) and tokens[index].norm == "you":
+                index += 1
+                if index < len(tokens) and tokens[index].norm == "not":
+                    negated = True
+                    index += 1
+                if index < len(tokens) and tokens[index].norm == "to":
+                    index += 1
+
+    if not recommendation and index < len(tokens) and tokens[index].norm == "you":
+        if (
+            index + 3 < len(tokens)
+            and tokens[index + 1].norm == "will"
+            and tokens[index + 2].norm == "need"
+            and tokens[index + 3].norm == "to"
+        ):
+            index += 4
+        elif (
+            index + 2 < len(tokens)
+            and tokens[index + 1].norm == "need"
+            and tokens[index + 2].norm == "to"
+        ):
+            index += 3
+        elif (
+            index + 1 < len(tokens)
+            and tokens[index + 1].norm in {"must", "should"}
+        ):
+            index += 2
+
+    while index < len(tokens) and tokens[index].norm in {
+        "always", "please", "simply", "gently", "only", "first",
+    }:
         index += 1
+
     if (
         index < len(tokens)
         and tokens[index].norm == "do"
@@ -582,7 +622,7 @@ def _direct_service_instructions(
     ):
         negated = True
         index += 2
-    elif index < len(tokens) and tokens[index].norm == "never":
+    elif index < len(tokens) and tokens[index].norm in {"never", "not"}:
         negated = True
         index += 1
 
