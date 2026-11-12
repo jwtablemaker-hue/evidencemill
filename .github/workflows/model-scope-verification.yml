@@ -4,6 +4,7 @@ on:
     paths:
       - 'src/evidencemill/**'
       - 'tests/test_document_pipeline.py'
+      - 'tests/test_sentence_structure.py'
       - '.github/workflows/model-scope-verification.yml'
 jobs:
   focused:
@@ -13,5 +14,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Run focused document and worker tests
-        run: PYTHONPATH=src python -m unittest discover -s tests -p 'test_document_pipeline.py' -v
+      - name: Run affected EvidenceMill tests
+        run: |
+          PYTHONPATH=src python -m unittest -v \
+            tests.test_sentence_structure \
+            tests.test_document_pipeline
