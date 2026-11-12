@@ -15,6 +15,7 @@ from evidencemill.ingest.pdf import (
     parse_pdf,
     _looks_like_two_up_spread,
     _ocr_regions,
+    _ocr_ruled_table,
     _ocr_text_with_layout,
 )
 from evidencemill.worker import FactPrepWorker
@@ -331,6 +332,93 @@ class PdfOcrTests(unittest.TestCase):
             with patch("evidencemill.ingest.pdf.ocr_words") as read:
                 parse_pdf(path, ocr_scanned=True)
         read.assert_not_called()
+
+    def test_raster_ruled_table_recovers_rows_before_prose_ocr(self):
+        from PIL import Image, ImageDraw
+        from io import BytesIO
+
+        image = Image.new("RGB", (600, 400), "white")
+        draw = ImageDraw.Draw(image)
+        for x in (50, 190, 330, 450, 550):
+            draw.line((x, 60, x, 340), fill=(220, 220, 220), width=2)
+        for y in (60, 125, 230, 340):
+            draw.line((50, y, 550, y), fill=(220, 220, 220), width=2)
+
+        class FakeTesseract:
+            Output = SimpleNamespace(DICT="DICT")
+
+            @staticmethod
+            def image_to_data(region, output_type, config=None):
+                self.assertEqual(output_type, "DICT")
+                self.assertEqual(config, "--psm 6")
+                width, height = region.size
+                texts = [
+                    "Item", "Size", "Torque", "Qty",
+                    "Deck", "M4x10mm", "2Nm", "4",
+                    "Fender", "M5x12mm", "3Nm", "2",
+                ]
+                columns = (0.08, 0.36, 0.64, 0.86)
+                rows = (0.12, 0.47, 0.78)
+                left = []
+                top = []
+                line = []
+                for row_index, y_fraction in enumerate(rows, start=1):
+                    for x_fraction in columns:
+                        left.append(int(width * x_fraction))
+                        top.append(int(height * y_fraction))
+                        line.append(row_index)
+                return {
+                    "text": texts,
+                    "left": left,
+                    "top": top,
+                    "width": [max(12, int(width * .08))] * len(texts),
+                    "height": [max(10, int(height * .08))] * len(texts),
+                    "block_num": [1] * len(texts),
+                    "par_num": [1] * len(texts),
+                    "line_num": line,
+                }
+
+        recovered = _ocr_ruled_table(image, FakeTesseract)
+        self.assertIsNotNone(recovered)
+        rows, bbox = recovered
+        self.assertEqual(
+            rows,
+            [
+                ["Item", "Size", "Torque", "Qty"],
+                ["Deck", "M4x10mm", "2Nm", "4"],
+                ["Fender", "M5x12mm", "3Nm", "2"],
+            ],
+        )
+        self.assertLessEqual(abs(bbox[0] - 50), 4)
+        self.assertLessEqual(abs(bbox[2] - 550), 4)
+
+        stream = BytesIO()
+        image.save(stream, format="PNG")
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "ruled-table.pdf"
+            with fitz.open() as pdf:
+                page = pdf.new_page(width=600, height=400)
+                page.insert_image(page.rect, stream=stream.getvalue())
+                pdf.save(path)
+
+            def recover(region, _):
+                return _ocr_ruled_table(region, FakeTesseract)
+
+            with patch(
+                "evidencemill.ingest.pdf._ocr_ruled_table",
+                side_effect=recover,
+            ), patch(
+                "evidencemill.ingest.pdf._ocr_text_with_layout",
+                return_value="Outside prose remains.",
+            ):
+                document = parse_pdf(path, ocr_scanned=True)
+
+        tables = [block for block in document.blocks if isinstance(block, TableBlock)]
+        self.assertEqual(len(tables), 1)
+        self.assertEqual(tables[0].rows[1], ("Deck", "M4x10mm", "2Nm", "4"))
+        self.assertEqual(tables[0].header_rows, 1)
+        self.assertEqual(tables[0].layout, "matrix")
+        self.assertEqual(document.metadata["ocr_ruled_table_pages"], [1])
 
     def test_one_line_ocr_block_splits_only_at_anomalous_word_gap(self):
 
