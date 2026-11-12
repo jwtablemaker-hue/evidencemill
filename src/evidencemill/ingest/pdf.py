@@ -4,7 +4,9 @@ from pathlib import Path
 import re
 from statistics import median
 
-from evidencemill.document import Document, FigureBlock, TableBlock, TextBlock
+from evidencemill.document import Document, FigureBlock, OcrWord, TableBlock, TextBlock
+from evidencemill.illustration import associate_callouts
+from evidencemill.ingest.image import ocr_words
 
 
 def _looks_like_continuation(previous: str, following: str) -> bool:
@@ -231,6 +233,88 @@ def _looks_like_two_up_spread(image):
     )
 
 
+def _mask_page_regions(image, bboxes, page_rect):
+    """Mask structured table regions before prose OCR to avoid duplicate facts."""
+    if not bboxes:
+        return image
+    from PIL import ImageDraw
+
+    masked = image.copy()
+    draw = ImageDraw.Draw(masked)
+    page_width = max(float(page_rect.width), 1.0)
+    page_height = max(float(page_rect.height), 1.0)
+    sx = image.width / page_width
+    sy = image.height / page_height
+    px0 = float(page_rect.x0)
+    py0 = float(page_rect.y0)
+    for bbox in bboxes:
+        if bbox is None:
+            continue
+        x0, y0, x1, y1 = bbox
+        left = max(0, min(image.width, int((x0 - px0) * sx)))
+        top = max(0, min(image.height, int((y0 - py0) * sy)))
+        right = max(left, min(image.width, int((x1 - px0) * sx)))
+        bottom = max(top, min(image.height, int((y1 - py0) * sy)))
+        if right > left and bottom > top:
+            draw.rectangle((left, top, right, bottom), fill="white")
+    return masked
+
+
+def _map_words_to_page(words, image_size, rect):
+    """Map embedded-image OCR coordinates into the PDF page coordinate space."""
+    width, height = image_size
+    if width <= 0 or height <= 0 or rect is None:
+        return ()
+    sx = float(rect.width) / width
+    sy = float(rect.height) / height
+    mapped = []
+    for word in words:
+        x0, y0, x1, y1 = word.bbox
+        mapped.append(OcrWord(
+            text=word.text,
+            bbox=(
+                float(rect.x0) + x0 * sx,
+                float(rect.y0) + y0 * sy,
+                float(rect.x0) + x1 * sx,
+                float(rect.y0) + y1 * sy,
+            ),
+            confidence=word.confidence,
+        ))
+    return tuple(mapped)
+
+
+def _embedded_figure_labels(doc, page, xref, rect, pytesseract, Image, cache):
+    """OCR a real embedded figure, but never duplicate a page-sized raster."""
+    if rect is None:
+        return ()
+    page_area = max(float(page.rect.width * page.rect.height), 1.0)
+    rect_area = max(float(rect.width * rect.height), 0.0)
+    coverage = rect_area / page_area
+    if coverage < 0.01 or coverage > 0.70 or rect.width < 40 or rect.height < 40:
+        return ()
+
+    cached = cache.get(xref)
+    if cached is None:
+        try:
+            extracted = doc.extract_image(xref)
+            payload = extracted.get("image")
+            if not payload:
+                cache[xref] = None
+                return ()
+            from io import BytesIO
+            figure_image = Image.open(BytesIO(payload)).convert("RGB")
+            words = ocr_words(figure_image, pytesseract)
+            cached = (figure_image.size, words)
+            cache[xref] = cached
+        except Exception:
+            cache[xref] = None
+            return ()
+    if cached is None:
+        return ()
+    image_size, words = cached
+    return _map_words_to_page(words, image_size, rect)
+
+
 def _center_inside(
     block_bbox: tuple[float, float, float, float],
     target_bbox: tuple[float, float, float, float],
@@ -254,6 +338,7 @@ def parse_pdf(path: str | Path, *, source_id: str | None = None, ocr_scanned: bo
     blocks = []
     counter = 0
     two_up_ocr_pages = []
+    figure_ocr_cache = {}
 
     for page_index, page in enumerate(doc):
         page_no = page_index + 1
@@ -284,7 +369,7 @@ def parse_pdf(path: str | Path, *, source_id: str | None = None, ocr_scanned: bo
             str(cell).strip() for rows, _ in detected_tables
             for row in rows for cell in row if cell is not None
         )
-        if (native_count <= 32 or corrupt_text) and not meaningful_tables and ocr_scanned:
+        if (native_count <= 32 or corrupt_text) and ocr_scanned:
             try:
                 from PIL import Image
                 import pytesseract
@@ -297,11 +382,19 @@ def parse_pdf(path: str | Path, *, source_id: str | None = None, ocr_scanned: bo
                 regions = _split_halves(image)
             if len(regions) == 2:
                 two_up_ocr_pages.append(page_no)
+            # Structured tables have already been extracted. Mask those exact
+            # rectangles so OCR can recover the rest of the page without
+            # re-emitting table cells as prose.
+            prose_image = _mask_page_regions(
+                image,
+                [bbox for _, bbox in detected_tables if bbox is not None],
+                page.rect,
+            )
             region_texts = [
                 (
                     region,
                     _normalize_text_preserving_paragraphs(
-                        _ocr_text_with_layout(image.crop(region), pytesseract)
+                        _ocr_text_with_layout(prose_image.crop(region), pytesseract)
                     ),
                 )
                 for region in regions
@@ -384,11 +477,30 @@ def parse_pdf(path: str | Path, *, source_id: str | None = None, ocr_scanned: bo
             if not rects:
                 rects = (None,)
             for rect in rects:
+                labels = ()
+                callouts = ()
+                if ocr_scanned and rect is not None:
+                    try:
+                        from PIL import Image
+                        import pytesseract
+                    except ImportError:
+                        Image = None
+                        pytesseract = None
+                    if Image is not None and pytesseract is not None:
+                        labels = _embedded_figure_labels(
+                            doc, page, xref, rect, pytesseract, Image, figure_ocr_cache
+                        )
+                        if labels:
+                            callouts = tuple(
+                                item.callout for item in associate_callouts(labels)
+                            )
                 counter += 1
                 blocks.append(FigureBlock(
                     block_id=f"figure-{counter}",
                     page=page_no,
                     bbox=_bbox(rect),
+                    labels=labels,
+                    callouts=callouts,
                     source_path=f"{p}#page={page_no}&xref={xref}",
                 ))
 
