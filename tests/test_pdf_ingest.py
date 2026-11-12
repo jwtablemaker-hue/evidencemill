@@ -488,7 +488,7 @@ class PdfOcrTests(unittest.TestCase):
                 (table_left, top, table_right, bottom),
                 fill=(220, 220, 220),
             )
-        draw.line((table_left, 460, table_right, 460), fill=(220, 220, 220), width=2)
+        draw.line((table_left, 430, table_right, 430), fill=(220, 220, 220), width=2)
 
         class FakeTesseract:
             Output = SimpleNamespace(DICT="DICT")
