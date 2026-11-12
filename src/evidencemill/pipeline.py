@@ -39,7 +39,28 @@ def _location(block, suffix: str | None = None) -> str:
     return ":".join(parts)
 
 
-def _text_observations(document: Document, block: TextBlock) -> list[EvidenceObservation]:
+def _sentence_structural_references(sentence: str, refs) -> list[dict[str, object]]:
+    """Attach only explicit table/figure/section references to parsed prose."""
+    folded = sentence.casefold()
+    out = []
+    for ref in refs:
+        if ref.text.casefold() not in folded:
+            continue
+        out.append({
+            "kind": ref.kind,
+            "label": ref.label,
+            "target_block_id": ref.target_block_id,
+            "source_text": ref.text,
+        })
+    return out
+
+
+def _text_observations(
+    document: Document,
+    block: TextBlock,
+    *,
+    structural_refs=(),
+) -> list[EvidenceObservation]:
     out = []
     if block.kind == "ocr_layout_review":
         # The recovered region can cross columns. Retain its text and location
@@ -53,13 +74,21 @@ def _text_observations(document: Document, block: TextBlock) -> list[EvidenceObs
         out.append(EvidenceObservation(kind="heading", source=SourceRef(document.source_id, _location(block), block.text), value=block.text, context={"heading_path": list(block.heading_path)}))
         return out
     for index, sentence in enumerate(split_sentences(block.text), start=1):
+        references = _sentence_structural_references(sentence, structural_refs)
         structure = analyze_statement(sentence)
+        statement_context = {
+            "block_id": block.block_id,
+            "heading_path": list(block.heading_path),
+            "structure": structure.to_dict(),
+        }
+        if references:
+            statement_context["structural_references"] = references
         out.append(EvidenceObservation(
             kind="statement",
             source=SourceRef(document.source_id, _location(block, f"s{index}"), sentence),
             value=sentence,
             qualifiers=tuple(sorted(structure.flags)),
-            context={"block_id": block.block_id, "heading_path": list(block.heading_path), "structure": structure.to_dict()},
+            context=statement_context,
             ambiguous=requires_scoped_review(structure),
         ))
         for measurement_index, measurement in enumerate(structure.measurements, start=1):
@@ -75,7 +104,20 @@ def _text_observations(document: Document, block: TextBlock) -> list[EvidenceObs
                 subject_hint=measurement.component_kind,
                 property_hint=measurement.local_label,
                 qualifiers=measurement.qualifiers,
-                context={"scope": measurement.scope, "placement": measurement.placement, "multiplicity": measurement.multiplicity, "value_kind": measurement.value_kind, "tolerance": measurement.tolerance, "comparison": measurement.comparison, "local_label": measurement.local_label, "measurement_text": measurement.text, "statement": sentence, "statement_structure": structure.to_dict(), "heading_path": list(block.heading_path)},
+                context={
+                    "scope": measurement.scope,
+                    "placement": measurement.placement,
+                    "multiplicity": measurement.multiplicity,
+                    "value_kind": measurement.value_kind,
+                    "tolerance": measurement.tolerance,
+                    "comparison": measurement.comparison,
+                    "local_label": measurement.local_label,
+                    "measurement_text": measurement.text,
+                    "statement": sentence,
+                    "statement_structure": structure.to_dict(),
+                    "heading_path": list(block.heading_path),
+                    **({"structural_references": references} if references else {}),
+                },
                 ambiguous=(
                     measurement.scope == "unknown"
                 ),
@@ -346,16 +388,58 @@ def _attach_model_scope(document: Document, block, observations: list[EvidenceOb
 
 
 def process_document(document: Document) -> list[EvidenceObservation]:
+    """Recover structure first; sentence-analyze prose only after it is known.
+
+    Tables and figures are interpreted before ordinary text. Explicit structural
+    references are resolved before prose is diagrammed, so grammar consumes
+    structural context rather than competing with it. Final observation order
+    still follows document block order for compatibility.
+    """
+    refs = resolve_cross_references(document)
+    refs_by_source: dict[str, list[object]] = {}
+    for ref in refs:
+        refs_by_source.setdefault(ref.source_block_id, []).append(ref)
+
+    prepared: dict[str, list[EvidenceObservation]] = {}
+
+    # Pass 1: structural blocks. Table row/column binding and figure/callout
+    # association must exist before ordinary prose is sentence-analyzed.
+    for block in document.blocks:
+        if isinstance(block, TableBlock):
+            prepared[block.block_id] = _attach_model_scope(
+                document, block, _table_observations(document, block)
+            )
+        elif isinstance(block, FigureBlock):
+            prepared[block.block_id] = _attach_model_scope(
+                document, block, _figure_observations(document, block)
+            )
+
+    # Pass 2: prose. Sentence analysis is deliberately last among block types.
+    for block in document.blocks:
+        if not isinstance(block, TextBlock):
+            continue
+        prepared[block.block_id] = _attach_model_scope(
+            document,
+            block,
+            _text_observations(
+                document,
+                block,
+                structural_refs=refs_by_source.get(block.block_id, ()),
+            ),
+        )
+
     observations: list[EvidenceObservation] = []
     for block in document.blocks:
-        if isinstance(block, TextBlock):
-            observations.extend(_attach_model_scope(document, block, _text_observations(document, block)))
-        elif isinstance(block, TableBlock):
-            observations.extend(_attach_model_scope(document, block, _table_observations(document, block)))
-        elif isinstance(block, FigureBlock):
-            observations.extend(_attach_model_scope(document, block, _figure_observations(document, block)))
-    for ref in resolve_cross_references(document):
-        observations.append(EvidenceObservation(kind="cross_reference", source=SourceRef(document.source_id, ref.source_block_id, ref.text), value=ref.label, property_hint=ref.kind, context={"target_block_id": ref.target_block_id}, ambiguous=ref.target_block_id is None))
+        observations.extend(prepared.get(block.block_id, ()))
+    for ref in refs:
+        observations.append(EvidenceObservation(
+            kind="cross_reference",
+            source=SourceRef(document.source_id, ref.source_block_id, ref.text),
+            value=ref.label,
+            property_hint=ref.kind,
+            context={"target_block_id": ref.target_block_id},
+            ambiguous=ref.target_block_id is None,
+        ))
     return observations
 
 
