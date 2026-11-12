@@ -533,10 +533,37 @@ def _direct_service_instructions(
     text: str,
     tokens: list[Token],
     components: list[ComponentMention],
+    *,
+    preface_depth: int = 0,
 ) -> list[ServiceInstruction]:
     """Recognize source-explicit direct imperatives/prohibitions only."""
     if not tokens:
         return []
+
+    if (
+        preface_depth < 2
+        and "," in text
+        and tokens[0].norm in _INSTRUCTION_PREFACES
+    ):
+        suffix = text.split(",", 1)[1].strip()
+        recovered = _direct_service_instructions(
+            suffix,
+            _tokens(suffix),
+            components,
+            preface_depth=preface_depth + 1,
+        )
+        if recovered:
+            item = recovered[0]
+            return [ServiceInstruction(
+                actions=item.actions,
+                action_text=text.strip(),
+                negated=item.negated,
+                mentioned_component_kinds=item.mentioned_component_kinds,
+                target_machine=(
+                    item.target_machine
+                    or any(token.norm in _MACHINE_WORDS for token in tokens)
+                ),
+            )]
 
     index = 0
     if _NUMBER_FULL_RE.fullmatch(tokens[index].norm):
