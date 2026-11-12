@@ -194,6 +194,42 @@ class DocumentPipelineTests(unittest.TestCase):
         self.assertEqual(measurements[1].value, 2400.0)
         self.assertEqual(measurements[1].context["scope"], "system")
 
+    def test_explicit_table_reference_reaches_prose_before_sentence_analysis(self):
+        doc = Document(
+            source_id="manual",
+            blocks=(
+                TextBlock(
+                    text="Table 1 lists rated voltage 48 V.",
+                    block_id="prose",
+                    page=3,
+                ),
+                TableBlock(
+                    rows=(("Rated voltage", "48 V"),),
+                    block_id="specs",
+                    caption="Table 1 Specifications",
+                    page=3,
+                    layout="key_value",
+                ),
+            ),
+        )
+        observations = process_document(doc)
+        statement = next(
+            item for item in observations
+            if item.kind == "statement" and item.source.location.endswith("prose:s1")
+        )
+        measurement = next(
+            item for item in observations
+            if item.kind == "measurement" and item.source.location.endswith("prose:s1:m1")
+        )
+        expected = [{
+            "kind": "table",
+            "label": "1",
+            "target_block_id": "specs",
+            "source_text": "Table 1",
+        }]
+        self.assertEqual(statement.context["structural_references"], expected)
+        self.assertEqual(measurement.context["structural_references"], expected)
+
     def test_paragraph_boundaries_are_hard_sentence_boundaries(self):
         self.assertEqual(
             split_sentences(
