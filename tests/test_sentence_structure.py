@@ -293,6 +293,31 @@ class SentenceStructureTests(unittest.TestCase):
                 self.assertEqual(instruction.negated, negated)
                 self.assertEqual(instruction.action_text, text)
 
+    def test_instruction_leadins_modals_and_recommendations_are_retained(self):
+        samples = (
+            ("To use it, press on the left thumb throttle.", ("press",), False),
+            ("Next, locate the charging port cap and open it.", ("locate",), False),
+            ("With the help of someone, remove the scooter from the box.", ("remove",), False),
+            ("If uncertain, contact support.", ("contact",), False),
+            ("You will need to turn off the scooter before charging.", ("turn",), False),
+            ("You must always ride with both hands on the handlebar.", ("ride",), False),
+            ("We recommend checking your screws every few months.", ("check",), False),
+            ("We recommend you not to use the regen brake at full charge.", ("use",), True),
+            ("When the tire is properly inflated, put the cap back on.", ("put",), False),
+            ("To fold the scooter simply repeat the steps in reverse.", ("fold",), False),
+        )
+        for text, actions, negated in samples:
+            with self.subTest(text=text):
+                result = analyze_statement(text)
+                self.assertEqual(len(result.service_instructions), 1)
+                instruction = result.service_instructions[0]
+                self.assertEqual(instruction.actions, actions)
+                self.assertEqual(instruction.negated, negated)
+                self.assertEqual(instruction.action_text, text)
+
+        expected_result = analyze_statement("You should see the display turn on.")
+        self.assertEqual(expected_result.service_instructions, ())
+
     def test_direct_instruction_preserves_mentions_without_claiming_target(self):
         result = analyze_statement(
             "Do not connect the charger if the charging port is wet."
