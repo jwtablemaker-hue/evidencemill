@@ -202,6 +202,64 @@ class PdfOcrTests(unittest.TestCase):
         self.assertEqual(sum(b.kind == "ocr_paragraph" for b in blocks), 1)
         self.assertEqual(self.text(document).count("ES1"), 1)
 
+    def parse_landscape_document(self, gutters):
+        from PIL import Image, ImageDraw
+        from io import BytesIO
+
+        seen = []
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "two-up-document.pdf"
+            with fitz.open() as pdf:
+                for gutter in gutters:
+                    image = Image.new("RGB", (800, 400), "white")
+                    draw = ImageDraw.Draw(image)
+                    for y in range(50, 350, 20):
+                        if gutter:
+                            draw.rectangle((50, y, 350, y + 4), fill="black")
+                            draw.rectangle((450, y, 750, y + 4), fill="black")
+                        else:
+                            draw.rectangle((50, y, 750, y + 4), fill="black")
+                    stream = BytesIO()
+                    image.save(stream, format="PNG")
+                    page = pdf.new_page(width=800, height=400)
+                    page.insert_image(page.rect, stream=stream.getvalue())
+                    page.insert_text((20, 20), "ES1")
+                pdf.save(path)
+
+            def read(region):
+                seen.append(region.size)
+                return "Recovered OCR text contains a useful specification value of 10.8 V."
+
+            with patch(
+                "evidencemill.ingest.pdf._ocr_text_with_layout",
+                side_effect=lambda region, _: read(region),
+            ):
+                document = parse_pdf(path, ocr_scanned=True)
+        return document, seen
+
+    def test_repeated_two_up_layout_splits_center_crossing_sheets(self):
+        document, seen = self.parse_landscape_document(
+            [True, True, True, False, False]
+        )
+        self.assertEqual(len(seen), 10)
+        self.assertEqual(
+            seen,
+            [(1600, 1600), (1600, 1600)] * 5,
+        )
+        self.assertEqual(document.metadata["ocr_two_up_pages"], [1, 2, 3, 4, 5])
+        self.assertEqual(
+            document.metadata["ocr_two_up_inferred_geometries"],
+            [[800.0, 400.0]],
+        )
+
+    def test_document_layout_does_not_force_split_without_majority_evidence(self):
+        document, seen = self.parse_landscape_document(
+            [True, True, False, False, False]
+        )
+        self.assertEqual(len(seen), 7)
+        self.assertEqual(document.metadata["ocr_two_up_pages"], [1, 2])
+        self.assertNotIn("ocr_two_up_inferred_geometries", document.metadata)
+
     def test_one_line_ocr_block_splits_only_at_anomalous_word_gap(self):
 
         words = ["Open", "the", "rubber", "cover", "Insert", "the", "charger", "plug", "in"]
