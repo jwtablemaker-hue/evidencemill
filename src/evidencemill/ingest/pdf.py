@@ -411,6 +411,14 @@ def _ruled_table_geometry(image):
     ):
         # A two-up page seam can sit immediately beside the true table border.
         rough = rough[1:]
+    if (
+        len(rough) > 1
+        and rough[-1][0] >= 0.995 * width
+        and rough[-1][3] >= 0.90 * height
+        and rough[-2][0] >= 0.96 * width
+    ):
+        # Same seam failure on the left logical page of a two-up spread.
+        rough = rough[:-1]
 
     extent_rules = [item for item in rough if item[3] >= 0.40 * height]
     if len(extent_rules) < 4:
@@ -440,6 +448,12 @@ def _ruled_table_geometry(image):
         and separators[1] <= 0.04 * width
     ):
         separators = separators[1:]
+    if (
+        len(separators) > 1
+        and separators[-1] >= 0.995 * width
+        and separators[-2] >= 0.96 * width
+    ):
+        separators = separators[:-1]
     if len(separators) < 5:
         return None
     if separators[-1] - separators[0] < 0.35 * width:

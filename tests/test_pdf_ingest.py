@@ -420,6 +420,61 @@ class PdfOcrTests(unittest.TestCase):
         self.assertEqual(tables[0].layout, "matrix")
         self.assertEqual(document.metadata["ocr_ruled_table_pages"], [1])
 
+    def test_ruled_table_ignores_full_height_right_edge_page_seam(self):
+        from PIL import Image, ImageDraw
+
+        image = Image.new("RGB", (600, 400), "white")
+        draw = ImageDraw.Draw(image)
+        # The table ends near the logical-page edge. A full-height two-up seam
+        # sits just outside it and must not redefine the table's vertical extent.
+        for x in (50, 190, 330, 450, 590):
+            draw.line((x, 60, x, 340), fill=(220, 220, 220), width=2)
+        draw.line((599, 0, 599, 399), fill=(220, 220, 220), width=2)
+        for y in (60, 125, 230, 340):
+            draw.line((50, y, 590, y), fill=(220, 220, 220), width=2)
+
+        class FakeTesseract:
+            Output = SimpleNamespace(DICT="DICT")
+
+            @staticmethod
+            def image_to_data(region, output_type, config=None):
+                self.assertEqual(output_type, "DICT")
+                self.assertEqual(config, "--psm 6")
+                width, height = region.size
+                texts = [
+                    "Item", "Size", "Torque", "Qty",
+                    "Deck", "M4x10mm", "2Nm", "4",
+                    "Fender", "M5x12mm", "3Nm", "2",
+                ]
+                columns = (0.08, 0.34, 0.62, 0.84)
+                rows = (0.12, 0.47, 0.78)
+                left = []
+                top = []
+                line = []
+                for row_index, y_fraction in enumerate(rows, start=1):
+                    for x_fraction in columns:
+                        left.append(int(width * x_fraction))
+                        top.append(int(height * y_fraction))
+                        line.append(row_index)
+                return {
+                    "text": texts,
+                    "left": left,
+                    "top": top,
+                    "width": [max(12, int(width * .08))] * len(texts),
+                    "height": [max(10, int(height * .08))] * len(texts),
+                    "block_num": [1] * len(texts),
+                    "par_num": [1] * len(texts),
+                    "line_num": line,
+                }
+
+        recovered = _ocr_ruled_table(image, FakeTesseract)
+        self.assertIsNotNone(recovered)
+        rows, bbox = recovered
+        self.assertEqual(rows[0], ["Item", "Size", "Torque", "Qty"])
+        self.assertEqual(rows[1], ["Deck", "M4x10mm", "2Nm", "4"])
+        self.assertLessEqual(abs(bbox[0] - 50), 4)
+        self.assertLessEqual(abs(bbox[2] - 590), 4)
+
     def test_one_line_ocr_block_splits_only_at_anomalous_word_gap(self):
 
         words = ["Open", "the", "rubber", "cover", "Insert", "the", "charger", "plug", "in"]
