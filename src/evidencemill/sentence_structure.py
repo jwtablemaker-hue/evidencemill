@@ -638,7 +638,22 @@ def _direct_service_instructions(
     ):
         first_action = "ensure"
     else:
-        first_action = _SERVICE_ACTIONS.get(tokens[index].norm)
+        first_action = (
+            _SERVICE_ACTIONS.get(tokens[index].norm)
+            or _SERVICE_GERUNDS.get(tokens[index].norm)
+        )
+
+    if first_action is None and tokens[0].norm == "to":
+        for candidate in range(max(index + 1, 1), len(tokens)):
+            action = (
+                _SERVICE_ACTIONS.get(tokens[candidate].norm)
+                or _SERVICE_GERUNDS.get(tokens[candidate].norm)
+            )
+            if action:
+                index = candidate
+                first_action = action
+                break
+
     if first_action is None:
         return []
 
@@ -646,9 +661,15 @@ def _direct_service_instructions(
     if (
         index + 2 < len(tokens)
         and tokens[index + 1].norm == "and"
-        and tokens[index + 2].norm in _SERVICE_ACTIONS
+        and (
+            tokens[index + 2].norm in _SERVICE_ACTIONS
+            or tokens[index + 2].norm in _SERVICE_GERUNDS
+        )
     ):
-        actions.append(_SERVICE_ACTIONS[tokens[index + 2].norm])
+        actions.append(
+            _SERVICE_ACTIONS.get(tokens[index + 2].norm)
+            or _SERVICE_GERUNDS[tokens[index + 2].norm]
+        )
 
     mentioned = tuple(sorted({item.kind for item in components}))
     target_machine = any(token.norm in _MACHINE_WORDS for token in tokens)
