@@ -10,7 +10,7 @@ try:
 except ImportError:
     fitz = None
 
-from evidencemill.document import TextBlock
+from evidencemill.document import FigureBlock, OcrWord, TableBlock, TextBlock
 from evidencemill.ingest.pdf import (
     parse_pdf,
     _looks_like_two_up_spread,
@@ -151,11 +151,17 @@ class PdfOcrTests(unittest.TestCase):
         self.assertEqual(calls, 0)
         self.assertEqual(self.text(document), "ES1")
 
-    def test_meaningful_table_suppresses_ocr(self):
-        table = SimpleNamespace(extract=lambda: [["Power", "30 W"]], bbox=None)
+    def test_meaningful_table_does_not_suppress_page_prose_ocr(self):
+        table = SimpleNamespace(
+            extract=lambda: [["Power", "30 W"]],
+            bbox=(50, 100, 250, 180),
+        )
         document, calls = self.parse("ES1", OCR, tables=SimpleNamespace(tables=[table]))
-        self.assertEqual(calls, 0)
-        self.assertEqual(self.text(document), "ES1")
+        self.assertEqual(calls, 1)
+        self.assertIn("Rated capacity 5.2Ah", self.text(document))
+        tables = [block for block in document.blocks if isinstance(block, TableBlock)]
+        self.assertEqual(len(tables), 1)
+        self.assertEqual(tables[0].rows, (("Power", "30 W"),))
 
     def parse_landscape(self, gutter):
         from PIL import Image, ImageDraw
@@ -263,6 +269,68 @@ class PdfOcrTests(unittest.TestCase):
 
         self.assertEqual(seen, [(2400, 1600), (2400, 1600)])
         self.assertEqual(document.metadata["ocr_two_up_pages"], [1])
+
+    def test_embedded_figure_reuses_positioned_image_ocr(self):
+        from PIL import Image
+        from io import BytesIO
+
+        image = Image.new("RGB", (200, 100), "white")
+        stream = BytesIO()
+        image.save(stream, format="PNG")
+        fake_words = (
+            OcrWord("1", (10, 10, 20, 20), 95.0),
+            OcrWord("Motor", (40, 10, 100, 25), 96.0),
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "figure.pdf"
+            with fitz.open() as pdf:
+                page = pdf.new_page(width=800, height=600)
+                page.insert_text(
+                    (40, 40),
+                    "This page contains enough native text to avoid page OCR entirely.",
+                )
+                page.insert_image(fitz.Rect(100, 100, 500, 300), stream=stream.getvalue())
+                pdf.save(path)
+
+            with patch(
+                "evidencemill.ingest.pdf.ocr_words",
+                return_value=fake_words,
+            ) as read:
+                document = parse_pdf(path, ocr_scanned=True)
+
+        read.assert_called_once()
+        figures = [
+            block for block in document.blocks
+            if isinstance(block, FigureBlock) and block.labels
+        ]
+        self.assertEqual(len(figures), 1)
+        figure = figures[0]
+        self.assertEqual([word.text for word in figure.labels], ["1", "Motor"])
+        self.assertEqual(figure.callouts, ("1",))
+        self.assertEqual(figure.labels[0].bbox, (120.0, 120.0, 140.0, 140.0))
+        self.assertEqual(figure.labels[1].bbox, (180.0, 120.0, 300.0, 150.0))
+
+    def test_page_sized_raster_is_not_re_ocrd_as_figure(self):
+        from PIL import Image
+        from io import BytesIO
+
+        image = Image.new("RGB", (800, 600), "white")
+        stream = BytesIO()
+        image.save(stream, format="PNG")
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "page-raster.pdf"
+            with fitz.open() as pdf:
+                page = pdf.new_page(width=800, height=600)
+                page.insert_image(page.rect, stream=stream.getvalue())
+                page.insert_text(
+                    (40, 40),
+                    "This native text is deliberately long enough to suppress page OCR.",
+                )
+                pdf.save(path)
+            with patch("evidencemill.ingest.pdf.ocr_words") as read:
+                parse_pdf(path, ocr_scanned=True)
+        read.assert_not_called()
 
     def test_one_line_ocr_block_splits_only_at_anomalous_word_gap(self):
 
