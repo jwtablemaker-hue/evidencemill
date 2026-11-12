@@ -365,10 +365,6 @@ def parse_pdf(path: str | Path, *, source_id: str | None = None, ocr_scanned: bo
         # readable text. Keep their native lines as evidence below.
         controls = sum(not char.isprintable() for char in native_text)
         corrupt_text = controls >= 8 and controls * 4 >= native_count
-        meaningful_tables = any(
-            str(cell).strip() for rows, _ in detected_tables
-            for row in rows for cell in row if cell is not None
-        )
         if (native_count <= 32 or corrupt_text) and ocr_scanned:
             try:
                 from PIL import Image
